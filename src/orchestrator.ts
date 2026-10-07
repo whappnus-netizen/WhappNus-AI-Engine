@@ -38,7 +38,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  const ranked=rankKnowledge(input.text,ctx.knowledge);
  const messages=buildMessages(a,history,formatKnowledge(ranked),formatExamples(ctx.examples),intent.intent,input.profileName??null,input.text);
  const response=await createProvider().generate(messages,{
-  model:a.model??config.AI_MODEL,temperature:a.temperature??config.AI_TEMPERATURE,maxTokens:a.maxTokens??config.AI_MAX_OUTPUT_TOKENS
+  model:a.model??String((settings as Record<string,unknown>|null)?.default_model??config.AI_MODEL),temperature:a.temperature??config.AI_TEMPERATURE,maxTokens:a.maxTokens??config.AI_MAX_OUTPUT_TOKENS
  });
  const result={text:response.text,provider:response.provider,model:response.model,latencyMs:Date.now()-started,intent:intent.intent,confidence:intent.confidence,usedKnowledge:ranked.length,agentId:a.id};
  const evaluation=evaluateResponse(input.text,response.text,ranked.length);
