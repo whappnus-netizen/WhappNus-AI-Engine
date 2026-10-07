@@ -34,12 +34,12 @@ export async function getHistory(conversationId:string|null|undefined){
  return ((r.data??[]) as Array<Record<string,unknown>>).reverse();
 }
 export async function getKnowledge(organizationId:string){
- const r=await supabase.from("ai_knowledge").select("*").eq("organization_id",organizationId).limit(config.AI_KNOWLEDGE_LIMIT);
+ const r=await supabase.from("ai_knowledge").select("*").eq("organization_id",organizationId).eq("is_active",true).limit(config.AI_KNOWLEDGE_LIMIT);
  if(r.error)throw new Error("ai_knowledge: "+r.error.message);
  return (r.data??[]) as Array<Record<string,unknown>>;
 }
 export async function getTrainingExamples(organizationId:string){
- const r=await supabase.from("ai_training_examples").select("*").eq("organization_id",organizationId).limit(20);
+ const r=await supabase.from("ai_training_examples").select("*").eq("organization_id",organizationId).eq("is_active",true).limit(20);
  if(r.error)throw new Error("ai_training_examples: "+r.error.message);
  return (r.data??[]) as Array<Record<string,unknown>>;
 }
