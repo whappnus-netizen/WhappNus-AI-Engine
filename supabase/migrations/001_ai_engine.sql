@@ -35,3 +35,6 @@ create table if not exists public.ai_evaluations (
 );
 create index if not exists idx_ai_credit_ledger_org_created on public.ai_credit_ledger(organization_id,created_at desc);
 create index if not exists idx_ai_evaluations_org_created on public.ai_evaluations(organization_id,created_at desc);
+
+revoke all on function public.consume_ai_credits(uuid,bigint) from public, anon, authenticated;
+grant execute on function public.consume_ai_credits(uuid,bigint) to service_role;
