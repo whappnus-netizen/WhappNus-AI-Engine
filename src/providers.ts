@@ -18,12 +18,13 @@ class Compatible implements AIProvider{
 class Gemini implements AIProvider{
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number}){
   if(!config.GEMINI_API_KEY)throw new Error("GEMINI_API_KEY ausente");
+  const model=o.model.replace(/^google\//,"").replace(/^gemini\//,"");
   const system=m.filter(x=>x.role==="system").map(x=>x.content).join("\n\n");
   const contents=m.filter(x=>x.role!=="system").map(x=>({role:x.role==="assistant"?"model":"user",parts:[{text:x.content}]}));
-  const url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(o.model)+":generateContent?key="+encodeURIComponent(config.GEMINI_API_KEY);
+  const url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent?key="+encodeURIComponent(config.GEMINI_API_KEY);
   const d=await jf(url,{}, {systemInstruction:{parts:[{text:system}]},contents,generationConfig:{temperature:o.temperature,maxOutputTokens:o.maxTokens}});
   const t=d.candidates?.[0]?.content?.parts?.map((p:any)=>p.text??"").join("").trim();if(!t)throw new Error("Gemini empty response");
-  return {text:t,provider:"gemini",model:o.model};
+  return {text:t,provider:"gemini",model:model};
  }
 }
 class Anthropic implements AIProvider{
