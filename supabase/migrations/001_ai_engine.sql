@@ -64,3 +64,16 @@ create index if not exists idx_ai_evaluations_org_created on public.ai_evaluatio
 
 revoke all on function public.consume_ai_credits(uuid,bigint) from public, anon, authenticated;
 grant execute on function public.consume_ai_credits(uuid,bigint) to service_role;
+
+do $$ begin
+  create policy ai_logs_member_select on public.ai_logs for select using (public.is_member(organization_id));
+exception when duplicate_object then null; end $$;
+do $$ begin
+  create policy ai_evaluations_member_select on public.ai_evaluations for select using (public.is_member(organization_id));
+exception when duplicate_object then null; end $$;
+do $$ begin
+  create policy ai_credit_accounts_member_select on public.ai_credit_accounts for select using (public.is_member(organization_id));
+exception when duplicate_object then null; end $$;
+do $$ begin
+  create policy ai_credit_ledger_member_select on public.ai_credit_ledger for select using (public.is_member(organization_id));
+exception when duplicate_object then null; end $$;
