@@ -1,5 +1,5 @@
 import {config} from "./config.js";
-import {getAgent,getHistory,getKnowledge,getSettings,getTrainingExamples,writeAiLog,supabase} from "./db.js";
+import {getAgentContext,getHistory,getSettings,writeAiLog,supabase} from "./db.js";
 import {consumeCredit} from "./credits.js";
 import {evaluateResponse} from "./evaluation.js";
 import {classifyIntent} from "./intent.js";
@@ -10,26 +10,33 @@ import type {AgentConfig,GenerateRequest,GeneratedResponse} from "./types.js";
 
 export async function generateReply(input:GenerateRequest):Promise<GeneratedResponse>{
  const started=Date.now();
- const [settings,agentRow,history,knowledge,examples]=await Promise.all([
-  getSettings(input.organizationId),getAgent(input.organizationId),getHistory(input.conversationId),
-  getKnowledge(input.organizationId),getTrainingExamples(input.organizationId)
+ const [settings,ctx,history]=await Promise.all([
+  getSettings(input.organizationId),getAgentContext(input.organizationId),getHistory(input.conversationId)
  ]);
  if(settings?.autoreply_enabled===false)throw new Error("AUTO_REPLY_DISABLED");
- if(!agentRow)throw new Error("NO_ACTIVE_AGENT");
+ if(!ctx.agent)throw new Error("NO_ACTIVE_AGENT");
  await consumeCredit(input.organizationId,1);
 
+ const row=ctx.agent;
  const a:AgentConfig={
-  id:String(agentRow.id),name:String(agentRow.name??agentRow.display_name??"Mia"),
-  personality:String(agentRow.personality??agentRow.tone??""),
-  instructions:String(agentRow.instructions??agentRow.system_prompt??""),
-  objective:String(agentRow.objective??agentRow.goal??""),
-  model:typeof agentRow.model==="string"?agentRow.model:undefined,
-  temperature:typeof agentRow.temperature==="number"?agentRow.temperature:undefined,
-  maxTokens:typeof agentRow.max_tokens==="number"?agentRow.max_tokens:undefined
+  id:String(row.id),name:String(row.name??row.display_name??"Mia"),
+  personality:String(row.personality??row.tone??""),
+  instructions:String(row.instructions??row.system_prompt??""),
+  objective:String(row.objective??row.goal??""),
+  model:typeof row.model==="string"?row.model:undefined,
+  temperature:typeof row.temperature==="number"?row.temperature:undefined,
+  maxTokens:typeof row.max_tokens==="number"?row.max_tokens:undefined,
+  company_name:row.company_name,company_description:row.company_description,
+  products_services:row.products_services,business_hours:row.business_hours,
+  location:row.location,payment_methods:row.payment_methods,faq:row.faq,
+  tone:row.tone,service_rules:row.service_rules,can_do:row.can_do,
+  cannot_do:row.cannot_do,handoff_instructions:row.handoff_instructions,
+  greeting_message:row.greeting_message,extra_instructions:row.extra_instructions,
+  language:row.language
  };
  const intent=classifyIntent(input.text);
- const ranked=rankKnowledge(input.text,knowledge);
- const messages=buildMessages(a,history,formatKnowledge(ranked),formatExamples(examples),intent.intent,input.profileName??null,input.text);
+ const ranked=rankKnowledge(input.text,ctx.knowledge);
+ const messages=buildMessages(a,history,formatKnowledge(ranked),formatExamples(ctx.examples),intent.intent,input.profileName??null,input.text);
  const response=await createProvider().generate(messages,{
   model:a.model??config.AI_MODEL,temperature:a.temperature??config.AI_TEMPERATURE,maxTokens:a.maxTokens??config.AI_MAX_OUTPUT_TOKENS
  });
@@ -46,8 +53,6 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
   organization_id:input.organizationId,conversation_id:input.conversationId??null,message_id:input.messageId??null,
   agent_id:a.id,score:evaluation.score,flags:evaluation.flags
  });
- if(ev.error && !ev.error.message.includes("relation") && !ev.error.message.includes("column")){
-  console.error("ai_evaluations:",ev.error.message);
- }
+ if(ev.error && !ev.error.message.includes("relation") && !ev.error.message.includes("column"))console.error("ai_evaluations:",ev.error.message);
  return result;
 }
