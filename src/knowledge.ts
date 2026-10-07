@@ -9,5 +9,10 @@ export function formatKnowledge(rows:Array<{row:Record<string,unknown>;score:num
  return rows.map(x=>"[relevancia "+x.score.toFixed(2)+"]\n"+textOf(x.row)).join("\n\n");
 }
 export function formatExamples(rows:Array<Record<string,unknown>>){
- return rows.map(r=>{const i=String(r.input??r.question??r.user_message??"");const o=String(r.output??r.answer??r.assistant_message??"");return i&&o?"Cliente: "+i+"\nResposta ideal: "+o:"";}).filter(Boolean).slice(0,6).join("\n\n");
+ return rows.map(r=>{
+  const i=String(r.input??r.question??r.user_message??"");
+  const o=String(r.expected_output??r.output??r.answer??r.assistant_message??"");
+  const type=String(r.example_type??r.type??"exemplo");
+  return i&&o?"Tipo: "+type+"\nCliente: "+i+"\nResposta ideal: "+o:"";
+ }).filter(Boolean).slice(0,8).join("\n\n");
 }
