@@ -4,7 +4,7 @@ import type {ChatMessage} from "./types.js";
 export interface ProviderResponse{text:string;provider:string;model:string}
 export interface AIProvider{generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number}):Promise<ProviderResponse>}
 
-async function jf(url:string,headers:Record<string,string>,body:unknown,timeoutMs=12000){
+async function jf(url:string,headers:Record<string,string>,body:unknown,timeoutMs=8000){
  const controller=new AbortController();
  const timer=setTimeout(()=>controller.abort(),timeoutMs);
  let r:Response;
@@ -35,7 +35,7 @@ class Gemini implements AIProvider{
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number}){
   if(!config.GEMINI_API_KEY)throw new Error("GEMINI_API_KEY ausente");
   const requested=o.model.replace(/^google\//,"").replace(/^gemini\//,"");
-  const fallbackModels=["gemini-3.5-flash-lite"];
+  const fallbackModels=["gemini-3.1-flash-lite"];
   const models=[...new Set([requested,...fallbackModels])];
   const system=m.filter(x=>x.role==="system").map(x=>x.content).join("\n\n");
   const contents=m.filter(x=>x.role!=="system").map(x=>({role:x.role==="assistant"?"model":"user",parts:[{text:x.content}]}));
@@ -43,12 +43,13 @@ class Gemini implements AIProvider{
   let lastError:unknown=null;
   for(const model of models){
    try{
+    const timeoutMs=model===requested?8000:8000;
     const url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent?key="+encodeURIComponent(config.GEMINI_API_KEY);
     const d=await jf(url,{}, {
       systemInstruction:{parts:[{text:system}]},
       contents,
       generationConfig:{maxOutputTokens:o.maxTokens,thinkingConfig:{thinkingLevel:"low"}}
-    },model===requested?12000:10000);
+    },timeoutMs);
     const t=d.candidates?.[0]?.content?.parts?.map((p:any)=>p.text??"").join("").trim();
     if(!t)throw new Error("Gemini empty response");
     if(model!==requested)console.warn("Gemini fallback ativo:",requested,"->",model);
@@ -56,8 +57,9 @@ class Gemini implements AIProvider{
    }catch(e){
     lastError=e;
     const msg=e instanceof Error?e.message:String(e);
-    const retryable=/provider HTTP (404|429|500|502|503|504):/.test(msg)||/UNAVAILABLE|high demand|temporarily|provider timeout/i.test(msg);
+    const retryable=/provider HTTP (404|408|409|429|500|502|503|504):/.test(msg)||/UNAVAILABLE|high demand|temporarily|provider timeout/i.test(msg);
     if(!retryable)throw e;
+    console.warn("Gemini tentativa falhou:",model,msg);
    }
   }
   throw lastError instanceof Error?lastError:new Error("Gemini generation failed");
