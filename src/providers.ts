@@ -68,12 +68,12 @@ class Gemini implements AIProvider{
 class Anthropic implements AIProvider{
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number}){
   if(!config.ANTHROPIC_API_KEY)throw new Error("ANTHROPIC_API_KEY ausente");
-  if(!config.ANTHROPIC_WORKSPACE_ID)throw new Error("ANTHROPIC_WORKSPACE_ID ausente; Anthropic fallback desativado");
+  if(!process.env.ANTHROPIC_WORKSPACE_ID)throw new Error("ANTHROPIC_WORKSPACE_ID ausente; Anthropic fallback desativado");
   const system=m.filter(x=>x.role==="system").map(x=>x.content).join("\n\n");
   const model="claude-haiku-4-5";
   const d=await jf("https://api.anthropic.com/v1/messages",{
    "x-api-key":config.ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01",
-   "anthropic-workspace-id":config.ANTHROPIC_WORKSPACE_ID
+   "anthropic-workspace-id":process.env.ANTHROPIC_WORKSPACE_ID
   },{model,max_tokens:Math.min(o.maxTokens,1024),temperature:o.temperature,system,messages:m.filter(x=>x.role!=="system")},12000);
   const t=d.content?.filter((x:any)=>x.type==="text").map((x:any)=>x.text).join("").trim();
   if(!t)throw new Error("Anthropic empty response");
@@ -88,7 +88,7 @@ class Resilient implements AIProvider{
   if(config.OPENAI_API_KEY)attempts.push(new Compatible("openai","https://api.openai.com/v1/chat/completions",config.OPENAI_API_KEY,"gpt-6-luna"));
   if(config.GEMINI_API_KEY)attempts.push(new Gemini());
   // Anthropic is only eligible when its required workspace scope is configured.
-  if(config.ANTHROPIC_API_KEY&&config.ANTHROPIC_WORKSPACE_ID)attempts.push(new Anthropic());
+  if(config.ANTHROPIC_API_KEY&&process.env.ANTHROPIC_WORKSPACE_ID)attempts.push(new Anthropic());
   if(config.LOVABLE_API_KEY)attempts.push(new Compatible("lovable","https://ai.gateway.lovable.dev/v1/chat/completions",config.LOVABLE_API_KEY,"google/gemini-3.5-flash-lite","Lovable-API-Key"));
   if(!attempts.length)throw new Error("Nenhum provedor de IA funcional configurado: configure OPENAI_API_KEY, GEMINI_API_KEY ou LOVABLE_API_KEY; Anthropic requer ANTHROPIC_WORKSPACE_ID");
   let lastError:unknown=null;
