@@ -4,7 +4,7 @@ import type {ChatMessage} from "./types.js";
 export interface ProviderResponse{text:string;provider:string;model:string}
 export interface AIProvider{generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number}):Promise<ProviderResponse>}
 
-async function jf(url:string,headers:Record<string,string>,body:unknown,timeoutMs=7000){
+async function jf(url:string,headers:Record<string,string>,body:unknown,timeoutMs=12000){
  const controller=new AbortController();
  const timer=setTimeout(()=>controller.abort(),timeoutMs);
  try{
@@ -24,7 +24,16 @@ class Compatible implements AIProvider{
   const headers:Record<string,string>={};
   headers[this.keyHeader]=this.keyHeader==="Authorization"?"Bearer "+this.key:this.key;
   const model=o.model.startsWith("gemini")||o.model.startsWith("google/")?this.model:o.model;
-  const d=await jf(this.url,headers,{model,messages:m,temperature:o.temperature,max_tokens:Math.min(o.maxTokens,1024)},6000);
+  const body:Record<string,unknown>={model,messages:m};
+  if(this.name==="openai"){
+   // Newer OpenAI models reject max_tokens; use the current Chat Completions field.
+   body.max_completion_tokens=Math.min(o.maxTokens,1024);
+   // Avoid sending temperature to reasoning models that may not support it.
+  }else{
+   body.max_tokens=Math.min(o.maxTokens,1024);
+   body.temperature=o.temperature;
+  }
+  const d=await jf(this.url,headers,body,12000);
   const t=d.choices?.[0]?.message?.content;
   if(typeof t!=="string"||!t.trim())throw new Error("empty AI response");
   return {text:t.trim(),provider:this.name,model:String(d.model??model)};
@@ -45,7 +54,7 @@ class Gemini implements AIProvider{
     const d=await jf(url,{},{
       systemInstruction:{parts:[{text:system}]},contents,
       generationConfig:{maxOutputTokens:Math.min(o.maxTokens,1024),thinkingConfig:{thinkingLevel:"low"}}
-    },6000);
+    },15000);
     const t=d.candidates?.[0]?.content?.parts?.map((p:any)=>p.text??"").join("").trim();
     if(!t)throw new Error("Gemini empty response");
     if(model!==requested)console.warn("Gemini fallback ativo:",requested,"->",model);
@@ -59,24 +68,29 @@ class Gemini implements AIProvider{
 class Anthropic implements AIProvider{
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number}){
   if(!config.ANTHROPIC_API_KEY)throw new Error("ANTHROPIC_API_KEY ausente");
+  if(!config.ANTHROPIC_WORKSPACE_ID)throw new Error("ANTHROPIC_WORKSPACE_ID ausente; Anthropic fallback desativado");
   const system=m.filter(x=>x.role==="system").map(x=>x.content).join("\n\n");
-  const d=await jf("https://api.anthropic.com/v1/messages",{"x-api-key":config.ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01"},
-   {model:o.model,max_tokens:Math.min(o.maxTokens,1024),temperature:o.temperature,system,messages:m.filter(x=>x.role!=="system")},6000);
+  const model="claude-haiku-4-5";
+  const d=await jf("https://api.anthropic.com/v1/messages",{
+   "x-api-key":config.ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01",
+   "anthropic-workspace-id":config.ANTHROPIC_WORKSPACE_ID
+  },{model,max_tokens:Math.min(o.maxTokens,1024),temperature:o.temperature,system,messages:m.filter(x=>x.role!=="system")},12000);
   const t=d.content?.filter((x:any)=>x.type==="text").map((x:any)=>x.text).join("").trim();
   if(!t)throw new Error("Anthropic empty response");
-  return {text:t,provider:"anthropic",model:o.model};
+  return {text:t,provider:"anthropic",model};
  }
 }
 
 class Resilient implements AIProvider{
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number}){
   const attempts:AIProvider[]=[];
-  if(config.AI_PROVIDER==="gemini"&&config.GEMINI_API_KEY)attempts.push(new Gemini());
+  // Prefer the working paid/available provider first. Gemini free-tier quota is currently exhausted.
   if(config.OPENAI_API_KEY)attempts.push(new Compatible("openai","https://api.openai.com/v1/chat/completions",config.OPENAI_API_KEY,"gpt-6-luna"));
+  if(config.GEMINI_API_KEY)attempts.push(new Gemini());
+  // Anthropic is only eligible when its required workspace scope is configured.
+  if(config.ANTHROPIC_API_KEY&&config.ANTHROPIC_WORKSPACE_ID)attempts.push(new Anthropic());
   if(config.LOVABLE_API_KEY)attempts.push(new Compatible("lovable","https://ai.gateway.lovable.dev/v1/chat/completions",config.LOVABLE_API_KEY,"google/gemini-3.5-flash-lite","Lovable-API-Key"));
-  if(config.ANTHROPIC_API_KEY)attempts.push(new Anthropic());
-  if(config.AI_PROVIDER!=="gemini"&&config.GEMINI_API_KEY)attempts.push(new Gemini());
-  if(!attempts.length)throw new Error("Nenhum provedor de IA configurado");
+  if(!attempts.length)throw new Error("Nenhum provedor de IA funcional configurado: configure OPENAI_API_KEY, GEMINI_API_KEY ou LOVABLE_API_KEY; Anthropic requer ANTHROPIC_WORKSPACE_ID");
   let lastError:unknown=null;
   for(const provider of attempts){
    try{const result=await provider.generate(m,o);console.log("AI provider selecionado:",result.provider,result.model);return result;}
