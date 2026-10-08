@@ -4,8 +4,16 @@ import type {ChatMessage} from "./types.js";
 export interface ProviderResponse{text:string;provider:string;model:string}
 export interface AIProvider{generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number}):Promise<ProviderResponse>}
 
-async function jf(url:string,headers:Record<string,string>,body:unknown){
- const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json",...headers},body:JSON.stringify(body)});
+async function jf(url:string,headers:Record<string,string>,body:unknown,timeoutMs=12000){
+ const controller=new AbortController();
+ const timer=setTimeout(()=>controller.abort(),timeoutMs);
+ let r:Response;
+ try{
+  r=await fetch(url,{method:"POST",headers:{"content-type":"application/json",...headers},body:JSON.stringify(body),signal:controller.signal});
+ }catch(e){
+  if(e instanceof DOMException && e.name==="AbortError")throw new Error("provider timeout after "+timeoutMs+"ms");
+  throw e;
+ }finally{clearTimeout(timer);}
  const raw=await r.text();
  if(!r.ok)throw new Error("provider HTTP "+r.status+": "+raw.slice(0,400));
  try{return JSON.parse(raw) as Record<string,any>}catch{throw new Error("provider returned invalid JSON")}
@@ -27,7 +35,7 @@ class Gemini implements AIProvider{
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number}){
   if(!config.GEMINI_API_KEY)throw new Error("GEMINI_API_KEY ausente");
   const requested=o.model.replace(/^google\//,"").replace(/^gemini\//,"");
-  const fallbackModels=["gemini-3.7-flash","gemini-3.6-flash","gemini-3.5-flash-lite"];
+  const fallbackModels=["gemini-3.5-flash-lite"];
   const models=[...new Set([requested,...fallbackModels])];
   const system=m.filter(x=>x.role==="system").map(x=>x.content).join("\n\n");
   const contents=m.filter(x=>x.role!=="system").map(x=>({role:x.role==="assistant"?"model":"user",parts:[{text:x.content}]}));
@@ -39,8 +47,8 @@ class Gemini implements AIProvider{
     const d=await jf(url,{}, {
       systemInstruction:{parts:[{text:system}]},
       contents,
-      generationConfig:{maxOutputTokens:o.maxTokens}
-    });
+      generationConfig:{maxOutputTokens:o.maxTokens,thinkingConfig:{thinkingLevel:"low"}}
+    },model===requested?12000:10000);
     const t=d.candidates?.[0]?.content?.parts?.map((p:any)=>p.text??"").join("").trim();
     if(!t)throw new Error("Gemini empty response");
     if(model!==requested)console.warn("Gemini fallback ativo:",requested,"->",model);
@@ -48,7 +56,7 @@ class Gemini implements AIProvider{
    }catch(e){
     lastError=e;
     const msg=e instanceof Error?e.message:String(e);
-    const retryable=/provider HTTP (404|429|500|502|503|504):/.test(msg)||/UNAVAILABLE|high demand|temporarily/i.test(msg);
+    const retryable=/provider HTTP (404|429|500|502|503|504):/.test(msg)||/UNAVAILABLE|high demand|temporarily|provider timeout/i.test(msg);
     if(!retryable)throw e;
    }
   }
