@@ -51,7 +51,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  });
 
  const ev=await supabase.from("ai_evaluations").insert({
-  organization_id:input.organizationId,conversation_id:input.conversationId??null,message_id:input.messageId??null,
+  organization_id:input.organizationId,conversation_id:input.conversationId??null,message_id:safeMessageId,
   agent_id:a.id,score:evaluation.score,flags:evaluation.flags
  });
  if(ev.error && !ev.error.message.includes("relation") && !ev.error.message.includes("column"))console.error("ai_evaluations:",ev.error.message);
