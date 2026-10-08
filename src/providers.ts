@@ -4,19 +4,18 @@ import type {ChatMessage} from "./types.js";
 export interface ProviderResponse{text:string;provider:string;model:string}
 export interface AIProvider{generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number}):Promise<ProviderResponse>}
 
-async function jf(url:string,headers:Record<string,string>,body:unknown,timeoutMs=8000){
+async function jf(url:string,headers:Record<string,string>,body:unknown,timeoutMs=7000){
  const controller=new AbortController();
  const timer=setTimeout(()=>controller.abort(),timeoutMs);
- let r:Response;
  try{
-  r=await fetch(url,{method:"POST",headers:{"content-type":"application/json",...headers},body:JSON.stringify(body),signal:controller.signal});
+  const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json",...headers},body:JSON.stringify(body),signal:controller.signal});
+  const raw=await r.text();
+  if(!r.ok)throw new Error("provider HTTP "+r.status+": "+raw.slice(0,400));
+  try{return JSON.parse(raw) as Record<string,any>}catch{throw new Error("provider returned invalid JSON")}
  }catch(e){
   if(e instanceof DOMException && e.name==="AbortError")throw new Error("provider timeout after "+timeoutMs+"ms");
   throw e;
  }finally{clearTimeout(timer);}
- const raw=await r.text();
- if(!r.ok)throw new Error("provider HTTP "+r.status+": "+raw.slice(0,400));
- try{return JSON.parse(raw) as Record<string,any>}catch{throw new Error("provider returned invalid JSON")}
 }
 
 class Compatible implements AIProvider{
@@ -35,21 +34,20 @@ class Gemini implements AIProvider{
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number}){
   if(!config.GEMINI_API_KEY)throw new Error("GEMINI_API_KEY ausente");
   const requested=o.model.replace(/^google\//,"").replace(/^gemini\//,"");
-  const fallbackModels=["gemini-3.1-flash-lite"];
-  const models=[...new Set([requested,...fallbackModels])];
+  const fastFallbacks=["gemini-3.5-flash-lite","gemini-3.1-flash-lite"];
+  const models=[...new Set([requested,...fastFallbacks])];
   const system=m.filter(x=>x.role==="system").map(x=>x.content).join("\n\n");
   const contents=m.filter(x=>x.role!=="system").map(x=>({role:x.role==="assistant"?"model":"user",parts:[{text:x.content}]}));
 
   let lastError:unknown=null;
   for(const model of models){
    try{
-    const timeoutMs=model===requested?8000:8000;
     const url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent?key="+encodeURIComponent(config.GEMINI_API_KEY);
-    const d=await jf(url,{}, {
+    const d=await jf(url,{},{
       systemInstruction:{parts:[{text:system}]},
       contents,
-      generationConfig:{maxOutputTokens:o.maxTokens,thinkingConfig:{thinkingLevel:"low"}}
-    },timeoutMs);
+      generationConfig:{maxOutputTokens:Math.min(o.maxTokens,1024),thinkingConfig:{thinkingLevel:"low"}}
+    },7000);
     const t=d.candidates?.[0]?.content?.parts?.map((p:any)=>p.text??"").join("").trim();
     if(!t)throw new Error("Gemini empty response");
     if(model!==requested)console.warn("Gemini fallback ativo:",requested,"->",model);
