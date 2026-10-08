@@ -8,7 +8,7 @@ const schema=z.object({
   SUPABASE_SERVICE_ROLE_KEY:z.string().min(1),
   AI_INTERNAL_SECRET:z.string().min(16),
   AI_PROVIDER:z.enum(["lovable","openai","gemini","anthropic"]).default("lovable"),
-  AI_MODEL:z.string().default("google/gemini-2.5-flash"),
+  AI_MODEL:z.string().default("gemini-3.8-flash"),
   LOVABLE_API_KEY:z.string().optional(),
   OPENAI_API_KEY:z.string().optional(),
   GEMINI_API_KEY:z.string().optional(),
