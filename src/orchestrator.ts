@@ -10,6 +10,7 @@ import type {AgentConfig,GenerateRequest,GeneratedResponse} from "./types.js";
 
 export async function generateReply(input:GenerateRequest):Promise<GeneratedResponse>{
  const started=Date.now();
+ const safeMessageId=typeof input.messageId==="string"&&/^[0-9a-fA-F-]{36}$/.test(input.messageId)?input.messageId:null;
  const [settings,ctx,history]=await Promise.all([
   getSettings(input.organizationId),getAgentContext(input.organizationId),getHistory(input.conversationId)
  ]);
@@ -44,7 +45,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  const evaluation=evaluateResponse(input.text,response.text,ranked.length);
 
  await writeAiLog({
-  organization_id:input.organizationId,conversation_id:input.conversationId??null,message_id:input.messageId??null,
+  organization_id:input.organizationId,conversation_id:input.conversationId??null,message_id:safeMessageId,
   agent_id:a.id,event_type:"generation",status:"success",provider:response.provider,model:response.model,
   intent:intent.intent,latency_ms:result.latencyMs,metadata:{confidence:intent.confidence,usedKnowledge:ranked.length,evaluation}
  });
