@@ -26,14 +26,33 @@ class Compatible implements AIProvider{
 class Gemini implements AIProvider{
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number}){
   if(!config.GEMINI_API_KEY)throw new Error("GEMINI_API_KEY ausente");
-  const model=o.model.replace(/^google\//,"").replace(/^gemini\//,"");
+  const requested=o.model.replace(/^google\//,"").replace(/^gemini\//,"");
+  const fallbackModels=["gemini-3.7-flash","gemini-3.6-flash","gemini-3.5-flash-lite"];
+  const models=[...new Set([requested,...fallbackModels])];
   const system=m.filter(x=>x.role==="system").map(x=>x.content).join("\n\n");
   const contents=m.filter(x=>x.role!=="system").map(x=>({role:x.role==="assistant"?"model":"user",parts:[{text:x.content}]}));
-  const url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent?key="+encodeURIComponent(config.GEMINI_API_KEY);
-  const d=await jf(url,{}, {systemInstruction:{parts:[{text:system}]},contents,generationConfig:{temperature:o.temperature,maxOutputTokens:o.maxTokens}});
-  const t=d.candidates?.[0]?.content?.parts?.map((p:any)=>p.text??"").join("").trim();
-  if(!t)throw new Error("Gemini empty response");
-  return {text:t,provider:"gemini",model:model};
+
+  let lastError:unknown=null;
+  for(const model of models){
+   try{
+    const url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent?key="+encodeURIComponent(config.GEMINI_API_KEY);
+    const d=await jf(url,{}, {
+      systemInstruction:{parts:[{text:system}]},
+      contents,
+      generationConfig:{maxOutputTokens:o.maxTokens}
+    });
+    const t=d.candidates?.[0]?.content?.parts?.map((p:any)=>p.text??"").join("").trim();
+    if(!t)throw new Error("Gemini empty response");
+    if(model!==requested)console.warn("Gemini fallback ativo:",requested,"->",model);
+    return {text:t,provider:"gemini",model};
+   }catch(e){
+    lastError=e;
+    const msg=e instanceof Error?e.message:String(e);
+    const retryable=/provider HTTP (404|429|500|502|503|504):/.test(msg)||/UNAVAILABLE|high demand|temporarily/i.test(msg);
+    if(!retryable)throw e;
+   }
+  }
+  throw lastError instanceof Error?lastError:new Error("Gemini generation failed");
  }
 }
 
