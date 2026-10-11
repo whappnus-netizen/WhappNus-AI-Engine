@@ -27,5 +27,5 @@ export interface AgentConfig {
 }
 export interface GeneratedResponse {
   text: string; provider: string; model: string; latencyMs: number; intent: string;
-  confidence: number; usedKnowledge: number; agentId: string | null;
+  confidence: number; usedKnowledge: number; agentId: string | null; reactionEmoji?: string | null;
 }

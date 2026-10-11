@@ -45,16 +45,8 @@ async function transcribeWithOpenAI(key: string, attachment: MediaAttachment): P
 class Compatible implements AIProvider{
  constructor(private name:string,private url:string,private key:string,private model:string,private keyHeader="Authorization"){}
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number},attachments:MediaAttachment[]=[]){
-  let effectiveMessages = m;
-  let effectiveAttachments = attachments;
-  if (this.name === "openai" && attachments.length > 0 && attachments.every(a => a.type === "audio")) {
-   const transcripts = await Promise.all(attachments.map(a => transcribeWithOpenAI(this.key, a)));
-   const lastUserIndex = m.map(x => x.role).lastIndexOf("user");
-   effectiveMessages = m.map((message,index) => index === lastUserIndex
-    ? {...message, content: message.content + "\n\nTranscrição do áudio do cliente: " + transcripts.join("\n")}
-    : message);
-   effectiveAttachments = [];
-  }
+  const effectiveMessages = m;
+  const effectiveAttachments = attachments;
   if(effectiveAttachments.some(a=>a.type!=="image"))throw new Error(this.name+" não suporta este tipo de anexo; a tentar o próximo provedor");
   const headers:Record<string,string>={};
   headers[this.keyHeader]=this.keyHeader==="Authorization"?"Bearer "+this.key:this.key;
@@ -144,9 +136,28 @@ class Anthropic implements AIProvider{
 
 class Resilient implements AIProvider{
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number},attachments:MediaAttachment[]=[]){
+  let effectiveMessages = m;
+  let effectiveAttachments = attachments;
+  if (config.OPENAI_API_KEY && attachments.length > 0 && attachments.every(a => a.type === "audio")) {
+   try {
+    const transcripts = await Promise.all(attachments.map(a => transcribeWithOpenAI(config.OPENAI_API_KEY!, a)));
+    const lastUserIndex = m.map(x => x.role).lastIndexOf("user");
+    effectiveMessages = m.map((message,index) => index === lastUserIndex
+     ? {...message, content: message.content + "\n\nTranscrição do áudio do cliente: " + transcripts.join("\n")}
+     : message);
+    effectiveAttachments = [];
+   } catch (error) {
+    console.warn("Transcrição prévia falhou; será tentada a compreensão nativa do provedor:", error instanceof Error ? error.message : String(error));
+   }
+  }
   const attempts:AIProvider[]=[];
   // Prefer the working paid/available provider first. Gemini free-tier quota is currently exhausted.
-  if(config.OPENAI_API_KEY)attempts.push(new Compatible("openai","https://api.openai.com/v1/chat/completions",config.OPENAI_API_KEY,"gpt-6-luna"));
+  if(config.OPENAI_API_KEY){
+   attempts.push(new Compatible("openai","https://api.openai.com/v1/chat/completions",config.OPENAI_API_KEY,"gpt-6-luna"));
+   // Fallback dentro do mesmo fornecedor: modelo multimodal mais leve para
+   // reduzir bloqueios por limite de tokens/minuto sem mudar a ordem dos providers.
+   attempts.push(new Compatible("openai","https://api.openai.com/v1/chat/completions",config.OPENAI_API_KEY,"gpt-4o-mini"));
+  }
   if(config.GEMINI_API_KEY)attempts.push(new Gemini());
   // Anthropic is only eligible when its required workspace scope is configured.
   if(config.ANTHROPIC_API_KEY&&process.env.ANTHROPIC_WORKSPACE_ID)attempts.push(new Anthropic());
@@ -154,7 +165,7 @@ class Resilient implements AIProvider{
   if(!attempts.length)throw new Error("Nenhum provedor de IA funcional configurado: configure OPENAI_API_KEY, GEMINI_API_KEY ou LOVABLE_API_KEY; Anthropic requer ANTHROPIC_WORKSPACE_ID");
   let lastError:unknown=null;
   for(const provider of attempts){
-   try{const result=await provider.generate(m,o,attachments);console.log("AI provider selecionado:",result.provider,result.model);return result;}
+   try{const result=await provider.generate(effectiveMessages,o,effectiveAttachments);console.log("AI provider selecionado:",result.provider,result.model);return result;}
    catch(e){lastError=e;console.error("AI provider falhou; tentando próximo:",e instanceof Error?e.message:String(e));}
   }
   throw lastError instanceof Error?lastError:new Error("Todos os provedores de IA falharam");
