@@ -18,19 +18,53 @@ async function jf(url:string,headers:Record<string,string>,body:unknown,timeoutM
  }finally{clearTimeout(timer);}
 }
 
+async function transcribeWithOpenAI(key: string, attachment: MediaAttachment): Promise<string> {
+ const bytes = Uint8Array.from(Buffer.from(attachment.data, "base64"));
+ const extension = attachment.mimeType === "audio/mpeg" ? "mp3"
+  : attachment.mimeType === "audio/mp4" ? "m4a"
+  : attachment.mimeType === "audio/wav" ? "wav"
+  : attachment.mimeType === "audio/webm" ? "webm"
+  : attachment.mimeType === "audio/aac" ? "aac"
+  : attachment.mimeType === "audio/amr" ? "amr" : "ogg";
+ const form = new FormData();
+ form.append("model", "whisper-1");
+ form.append("file", new Blob([bytes], { type: attachment.mimeType }), "incoming-audio." + extension);
+ const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+  method: "POST",
+  headers: { Authorization: "Bearer " + key },
+  body: form,
+  signal: AbortSignal.timeout(20000)
+ });
+ if (!response.ok) throw new Error("OpenAI audio transcription failed (HTTP " + response.status + ")");
+ const data = await response.json() as Record<string, unknown>;
+ const transcript = typeof data["text"] === "string" ? data["text"].trim() : "";
+ if (!transcript) throw new Error("OpenAI returned an empty audio transcript");
+ return transcript.slice(0, 20000);
+}
+
 class Compatible implements AIProvider{
  constructor(private name:string,private url:string,private key:string,private model:string,private keyHeader="Authorization"){}
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number},attachments:MediaAttachment[]=[]){
-  if(attachments.some(a=>a.type!=="image"))throw new Error(this.name+" não suporta este tipo de anexo; a tentar o próximo provedor");
+  let effectiveMessages = m;
+  let effectiveAttachments = attachments;
+  if (this.name === "openai" && attachments.length > 0 && attachments.every(a => a.type === "audio")) {
+   const transcripts = await Promise.all(attachments.map(a => transcribeWithOpenAI(this.key, a)));
+   const lastUserIndex = m.map(x => x.role).lastIndexOf("user");
+   effectiveMessages = m.map((message,index) => index === lastUserIndex
+    ? {...message, content: message.content + "\\n\\nTranscrição do áudio do cliente: " + transcripts.join("\\n")}
+    : message);
+   effectiveAttachments = [];
+  }
+  if(effectiveAttachments.some(a=>a.type!=="image"))throw new Error(this.name+" não suporta este tipo de anexo; a tentar o próximo provedor");
   const headers:Record<string,string>={};
   headers[this.keyHeader]=this.keyHeader==="Authorization"?"Bearer "+this.key:this.key;
   const model=o.model.startsWith("gemini")||o.model.startsWith("google/")?this.model:o.model;
-  const lastUserIndex=m.map(x=>x.role).lastIndexOf("user");
-  const compatibleMessages=m.map((message,index)=>{
-   if(index!==lastUserIndex||attachments.length===0)return message;
+  const lastUserIndex=effectiveMessages.map(x=>x.role).lastIndexOf("user");
+  const compatibleMessages=effectiveMessages.map((message,index)=>{
+   if(index!==lastUserIndex||effectiveAttachments.length===0)return message;
    return {...message,content:[
     {type:"text",text:message.content},
-    ...attachments.map(a=>({type:"image_url",image_url:{url:"data:"+a.mimeType+";base64,"+a.data}}))
+    ...effectiveAttachments.map(a=>({type:"image_url",image_url:{url:"data:"+a.mimeType+";base64,"+a.data}}))
    ]};
   });
   const body:Record<string,unknown>={model,messages:compatibleMessages};
