@@ -44,7 +44,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  ]);
  if(settings?.autoreply_enabled===false)throw new Error("AUTO_REPLY_DISABLED");
  if(!ctx.agent)throw new Error("NO_ACTIVE_AGENT");
- await consumeCredit(input.organizationId,1);
+ await consumeCredit(input.organizationId,input.conversationId);
 
  const row=ctx.agent;
  const featureConfig = row.config && typeof row.config === "object"
