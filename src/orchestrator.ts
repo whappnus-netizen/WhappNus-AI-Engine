@@ -100,7 +100,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
   model:a.model??String((settings as Record<string,unknown>|null)?.default_model??config.AI_MODEL),temperature:a.temperature??config.AI_TEMPERATURE,maxTokens:a.maxTokens??config.AI_MAX_OUTPUT_TOKENS
  }, effectiveAttachment ? [effectiveAttachment] : []);
  const reactionText = input.text.toLowerCase();
- const reactionEligible = featureConfig["reactionsEnabled"] === true &&
+ const reactionEligible = featureConfig["reactionsEnabled"] !== false &&
   !["image","audio","video","document"].includes(input.messageType ?? "") &&
   /(obrigad[oa]s?|gostei|adorei|amei|perfeito|perfeita|excelente|muito bom|muito boa|top|tenho interesse|quero comprar|quero esse|quero este|vou levar|pode reservar|pode marcar|fechado|aceito)/i.test(reactionText);
  const reactionEmoji = reactionEligible
