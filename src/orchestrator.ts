@@ -19,7 +19,7 @@ async function loadInboundAttachment(input: GenerateRequest): Promise<MediaAttac
  const extensionMime: Record<string,string> = {
   jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",webp:"image/webp",gif:"image/gif",
   ogg:"audio/ogg",mp3:"audio/mpeg",m4a:"audio/mp4",aac:"audio/aac",amr:"audio/amr",wav:"audio/wav",
-  pdf:"application/pdf",mp4:"video/mp4",3gp:"video/3gpp"
+  pdf:"application/pdf",mp4:"video/mp4","3gp":"video/3gpp"
  };
  const ext = input.mediaPath.split(".").pop()?.toLowerCase() ?? "";
  const mimeType = input.mediaMimeType && allowed.has(input.mediaMimeType)
