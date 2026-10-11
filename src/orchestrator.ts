@@ -57,6 +57,16 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
   (attachment.type === "audio" && audioEnabled) ||
   !["image","audio"].includes(attachment.type)
  ) ? attachment : null;
+ if (input.messageType && input.messageType !== "text" && input.messageType !== "system") {
+  console.info("[ai] inbound attachment", {
+   type: input.messageType,
+   mediaPathProvided: Boolean(input.mediaPath),
+   attachmentLoaded: Boolean(attachment),
+   attachmentEnabled: Boolean(effectiveAttachment),
+   mimeType: attachment?.mimeType ?? input.mediaMimeType ?? null,
+   bytes: attachment ? Math.floor(Buffer.from(attachment.data, "base64").length) : 0,
+  });
+ }
  const attachmentText = typeof input.text === "string" ? input.text.trim() : "";
  const messageText = input.messageType === "image" && !imageEnabled
   ? "[O cliente enviou uma imagem, mas a análise de imagens está desactivada. Pede ao cliente que descreva o conteúdo.]"
@@ -102,7 +112,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  await writeAiLog({
   organization_id:input.organizationId,conversation_id:input.conversationId??null,message_id:safeMessageId,
   agent_id:a.id,event_type:"generation",status:"success",provider:response.provider,model:response.model,
-  intent:intent.intent,latency_ms:result.latencyMs,metadata:{confidence:intent.confidence,usedKnowledge:ranked.length,evaluation}
+  intent:intent.intent,latency_ms:result.latencyMs,metadata:{confidence:intent.confidence,usedKnowledge:ranked.length,evaluation,messageType:input.messageType??"text",attachmentLoaded:Boolean(attachment),attachmentEnabled:Boolean(effectiveAttachment)}
  });
 
  const ev=await supabase.from("ai_evaluations").insert({
