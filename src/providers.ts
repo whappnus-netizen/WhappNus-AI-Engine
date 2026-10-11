@@ -51,7 +51,7 @@ class Compatible implements AIProvider{
    const transcripts = await Promise.all(attachments.map(a => transcribeWithOpenAI(this.key, a)));
    const lastUserIndex = m.map(x => x.role).lastIndexOf("user");
    effectiveMessages = m.map((message,index) => index === lastUserIndex
-    ? {...message, content: message.content + "\\n\\nTranscrição do áudio do cliente: " + transcripts.join("\\n")}
+    ? {...message, content: message.content + "\n\nTranscrição do áudio do cliente: " + transcripts.join("\n")}
     : message);
    effectiveAttachments = [];
   }
