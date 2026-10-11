@@ -12,7 +12,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  const started=Date.now();
  const safeMessageId=typeof input.messageId==="string"&&/^[0-9a-fA-F-]{36}$/.test(input.messageId)?input.messageId:null;
  const [settings,ctx,history]=await Promise.all([
-  getSettings(input.organizationId),getAgentContext(input.organizationId),getHistory(input.conversationId)
+  getSettings(input.organizationId),getAgentContext(input.organizationId,input.whatsappNumberId,input.agentId),getHistory(input.conversationId)
  ]);
  if(settings?.autoreply_enabled===false)throw new Error("AUTO_REPLY_DISABLED");
  if(!ctx.agent)throw new Error("NO_ACTIVE_AGENT");
