@@ -1,11 +1,25 @@
 import express from "express";
 import {config} from "./config.js";
 import {generateReply} from "./orchestrator.js";
+import {supabase} from "./db.js";
 import {allow} from "./rate-limit.js";
 import type {GenerateRequest} from "./types.js";
 
 const app=express();app.disable("x-powered-by");app.use(express.json({limit:"256kb"}));
 app.get("/health",(_req,res)=>res.json({ok:true,service:"whappnus-ai-engine",provider:config.AI_PROVIDER,model:config.AI_MODEL}));
+
+// Expire trials/subscriptions even when no new WhatsApp messages arrive.
+async function syncExpiredSubscriptions(){
+ try {
+  const result=await supabase.rpc("suspend_expired_subscriptions");
+  if(result.error) console.error("subscription expiry sync failed:",result.error.message);
+ } catch(e) {
+  console.error("subscription expiry sync failed:",e instanceof Error?e.message:"unknown");
+ }
+}
+void syncExpiredSubscriptions();
+const expiryTimer=setInterval(()=>{void syncExpiredSubscriptions();},60_000);
+expiryTimer.unref();
 function authorized(req:express.Request){return req.header("authorization")==="Bearer "+config.AI_INTERNAL_SECRET;}
 
 app.post("/v1/generate",async(req,res)=>{
@@ -15,7 +29,7 @@ app.post("/v1/generate",async(req,res)=>{
  const key=String(b.organizationId)+":"+String(b.fromWaId??"unknown");
  if(!allow(key,config.AI_RATE_LIMIT_PER_MINUTE))return res.status(429).json({ok:false,error:"rate_limited"});
  try{return res.json({ok:true,...await generateReply({...b,text:b.text.trim()} as GenerateRequest)});}
- catch(e){const m=e instanceof Error?e.message:"unknown";if(m==="AUTO_REPLY_DISABLED"||m==="NO_ACTIVE_AGENT")return res.status(409).json({ok:false,error:m});console.error("generation:",m);return res.status(500).json({ok:false,error:"ai_generation_failed"});}
+ catch(e){const m=e instanceof Error?e.message:"unknown";if(m==="AUTO_REPLY_DISABLED"||m==="NO_ACTIVE_AGENT")return res.status(409).json({ok:false,error:m});if(["SUBSCRIPTION_REQUIRED","ACCOUNT_SUSPENDED","AI_CONVERSATIONS_EXHAUSTED","PLAN_HAS_NO_AI_CONVERSATIONS"].includes(m))return res.status(402).json({ok:false,error:m});console.error("generation:",m);return res.status(500).json({ok:false,error:"ai_generation_failed"});}
 });
 app.get("/v1/capabilities",(_req,res)=>res.json({ok:true,providers:["lovable","openai","gemini","anthropic"],capabilities:["intent-classification","agent-selection","prompt-orchestration","natural-conversation","sales-guidance","conversation-context","knowledge-ranking","training-examples","multimodal-image-audio-pdf-video","provider-abstraction","rate-limiting","ai-logs","future-tools","future-memory","future-rag","future-credits","future-evaluation"]}));
 app.listen(config.PORT,()=>console.log("WhappNus AI Engine listening on :"+config.PORT));
