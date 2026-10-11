@@ -13,18 +13,18 @@ export async function getAgent(organizationId:string){
  const rows=(r.data??[]) as Array<Record<string,unknown>>;
  return rows.find(x=>x.is_active!==false&&x.status!=="inactive")??rows[0]??null;
 }
-export async function getAgentContext(organizationId:string){
- const r=await supabase.rpc("ai_agent_context",{_organization_id:organizationId});
- if(!r.error&&r.data&&typeof r.data==="object"){
-  const d=r.data as Record<string,unknown>;
-  const agent=(d.agent&&typeof d.agent==="object"?d.agent:null) as Record<string,unknown>|null;
-  const knowledge=Array.isArray(d.knowledge)?d.knowledge as Array<Record<string,unknown>>:[];
-  const examples=Array.isArray(d.examples)?d.examples as Array<Record<string,unknown>>:[];
-  if(agent)return {agent,knowledge,examples};
- }
- const [agent,knowledge,examples]=await Promise.all([
-  getAgent(organizationId),getKnowledge(organizationId),getTrainingExamples(organizationId)
- ]);
+export async function getAgentContext(organizationId:string,whatsappNumberId?:string|null,agentId?:string|null){
+ const r=await supabase.rpc("ai_agent_context",{
+  _organization_id:organizationId,
+  _whatsapp_number_id:whatsappNumberId??null,
+  _agent_id:agentId??null
+ });
+ if(r.error)throw new Error("ai_agent_context: "+r.error.message);
+ if(!r.data||typeof r.data!=="object")throw new Error("ai_agent_context returned an invalid response");
+ const d=r.data as Record<string,unknown>;
+ const agent=(d.agent&&typeof d.agent==="object"?d.agent:null) as Record<string,unknown>|null;
+ const knowledge=Array.isArray(d.knowledge)?d.knowledge as Array<Record<string,unknown>>:[];
+ const examples=Array.isArray(d.examples)?d.examples as Array<Record<string,unknown>>:[];
  return {agent,knowledge,examples};
 }
 export async function getHistory(conversationId:string|null|undefined){

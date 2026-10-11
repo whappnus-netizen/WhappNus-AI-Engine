@@ -3,7 +3,7 @@ export interface ChatMessage { role:ChatRole; content:string; }
 export interface GenerateRequest {
   organizationId:string; whatsappNumberId:string; conversationId?:string|null; contactId?:string|null;
   messageId?:string|null; fromWaId?:string|null; profileName?:string|null; text:string;
-  metadata?:Record<string,unknown>;
+  metadata?:Record<string,unknown>; agentId?:string|null;
 }
 export interface AgentConfig {
   id:string; name:string; personality:string; instructions:string; objective:string;
