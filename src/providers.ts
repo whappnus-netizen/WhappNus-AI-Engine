@@ -152,7 +152,12 @@ class Resilient implements AIProvider{
   }
   const attempts:AIProvider[]=[];
   // Prefer the working paid/available provider first. Gemini free-tier quota is currently exhausted.
-  if(config.OPENAI_API_KEY)attempts.push(new Compatible("openai","https://api.openai.com/v1/chat/completions",config.OPENAI_API_KEY,"gpt-6-luna"));
+  if(config.OPENAI_API_KEY){
+   attempts.push(new Compatible("openai","https://api.openai.com/v1/chat/completions",config.OPENAI_API_KEY,"gpt-6-luna"));
+   // Fallback dentro do mesmo fornecedor: modelo multimodal mais leve para
+   // reduzir bloqueios por limite de tokens/minuto sem mudar a ordem dos providers.
+   attempts.push(new Compatible("openai","https://api.openai.com/v1/chat/completions",config.OPENAI_API_KEY,"gpt-4o-mini"));
+  }
   if(config.GEMINI_API_KEY)attempts.push(new Gemini());
   // Anthropic is only eligible when its required workspace scope is configured.
   if(config.ANTHROPIC_API_KEY&&process.env.ANTHROPIC_WORKSPACE_ID)attempts.push(new Anthropic());
