@@ -6,13 +6,41 @@ import {classifyIntent} from "./intent.js";
 import {formatExamples,formatKnowledge,rankKnowledge} from "./knowledge.js";
 import {buildMessages} from "./prompt.js";
 import {createProvider} from "./providers.js";
-import type {AgentConfig,GenerateRequest,GeneratedResponse} from "./types.js";
+import type {AgentConfig,GenerateRequest,GeneratedResponse,MediaAttachment} from "./types.js";
+
+async function loadInboundAttachment(input: GenerateRequest): Promise<MediaAttachment | null> {
+ if (!input.mediaPath || !input.messageType || input.messageType === "text" || input.messageType === "system") return null;
+ // Only fetch paths inside this tenant's own WhatsApp media folder.
+ const expectedPrefix = input.organizationId + "/" + input.whatsappNumberId + "/";
+ if (!input.mediaPath.startsWith(expectedPrefix) || input.mediaPath.includes("..")) {
+  throw new Error("INVALID_MEDIA_PATH");
+ }
+ const allowed = new Set(["image/jpeg","image/png","image/webp","image/gif","audio/ogg","audio/mpeg","audio/mp4","audio/aac","audio/amr","audio/wav","application/pdf","video/mp4","video/3gpp"]);
+ const extensionMime: Record<string,string> = {
+  jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",webp:"image/webp",gif:"image/gif",
+  ogg:"audio/ogg",mp3:"audio/mpeg",m4a:"audio/mp4",aac:"audio/aac",amr:"audio/amr",wav:"audio/wav",
+  pdf:"application/pdf",mp4:"video/mp4",3gp:"video/3gpp"
+ };
+ const ext = input.mediaPath.split(".").pop()?.toLowerCase() ?? "";
+ const mimeType = input.mediaMimeType && allowed.has(input.mediaMimeType)
+  ? input.mediaMimeType
+  : extensionMime[ext];
+ if (!mimeType || !allowed.has(mimeType)) throw new Error("UNSUPPORTED_MEDIA_TYPE");
+ const { data, error } = await supabase.storage.from("whatsapp-incoming-media").download(input.mediaPath);
+ if (error || !data) throw new Error("MEDIA_DOWNLOAD_FAILED");
+ const bytes = Buffer.from(await data.arrayBuffer());
+ if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error("MEDIA_TOO_LARGE_FOR_AI");
+ return { type: input.messageType, mimeType, data: bytes.toString("base64") };
+}
 
 export async function generateReply(input:GenerateRequest):Promise<GeneratedResponse>{
  const started=Date.now();
  const safeMessageId=typeof input.messageId==="string"&&/^[0-9a-fA-F-]{36}$/.test(input.messageId)?input.messageId:null;
- const [settings,ctx,history]=await Promise.all([
-  getSettings(input.organizationId),getAgentContext(input.organizationId,input.whatsappNumberId,input.agentId),getHistory(input.conversationId)
+ const [settings,ctx,history,attachment]=await Promise.all([
+  getSettings(input.organizationId),
+  getAgentContext(input.organizationId,input.whatsappNumberId,input.agentId),
+  getHistory(input.conversationId),
+  loadInboundAttachment(input)
  ]);
  if(settings?.autoreply_enabled===false)throw new Error("AUTO_REPLY_DISABLED");
  if(!ctx.agent)throw new Error("NO_ACTIVE_AGENT");
@@ -40,7 +68,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  const messages=buildMessages(a,history,formatKnowledge(ranked),formatExamples(ctx.examples),intent.intent,input.profileName??null,input.text);
  const response=await createProvider().generate(messages,{
   model:a.model??String((settings as Record<string,unknown>|null)?.default_model??config.AI_MODEL),temperature:a.temperature??config.AI_TEMPERATURE,maxTokens:a.maxTokens??config.AI_MAX_OUTPUT_TOKENS
- });
+ }, attachment ? [attachment] : []);
  const result={text:response.text,provider:response.provider,model:response.model,latencyMs:Date.now()-started,intent:intent.intent,confidence:intent.confidence,usedKnowledge:ranked.length,agentId:a.id};
  const evaluation=evaluateResponse(input.text,response.text,ranked.length);
 
