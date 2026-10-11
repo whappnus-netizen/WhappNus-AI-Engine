@@ -41,7 +41,7 @@ app.post("/v1/group-generate",async(req,res)=>{
  const privateDmRules=typeof b.privateDmRules==="string"?b.privateDmRules.trim():"";
  const prompt=typeof b.prompt==="string"?b.prompt.trim():"";
  if(systemPrompt.length<20||!prompt||prompt.length>12000)return res.status(400).json({ok:false,error:"systemPrompt and prompt are required"});
- const system="És a IA de conteúdo do WhappNus Group Commander. Produz apenas a mensagem final, sem comentários sobre a tarefa.\n\nINSTRUÇÃO PRINCIPAL:\n"+systemPrompt+"\n\nREGRAS PARA GRUPOS:\n"+publicGroupRules+"\n\nSegurança: não inventes preços, factos, provas ou promessas; não peças dados privados num grupo; não respondas a pessoas específicas como se fosse uma conversa privada; respeita a finalidade comercial e as regras de consentimento.";
+ const system="És a IA de conteúdo do WhappNus Group Commander. Produz apenas a mensagem final, sem comentários sobre a tarefa.\n\nINSTRUÇÃO PRINCIPAL:\n"+systemPrompt+"\n\nREGRAS PARA GRUPOS:\n"+publicGroupRules+"\n\nREGRAS PARA CONVERSAS PRIVADAS (não as executar dentro do grupo):\n"+privateDmRules+"\n\nSegurança: não inventes preços, factos, provas ou promessas; não peças dados privados num grupo; não respondas a pessoas específicas como se fosse uma conversa privada; respeita a finalidade comercial e as regras de consentimento.";
  try {
   const result=await createProvider().generate([{role:"system",content:system},{role:"user",content:prompt}],{model:config.AI_MODEL,temperature:config.AI_TEMPERATURE,maxTokens:config.AI_MAX_OUTPUT_TOKENS});
   const text=String(result.text??"").trim();
