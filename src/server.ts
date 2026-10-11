@@ -35,9 +35,10 @@ app.post("/v1/generate",async(req,res)=>{
 app.post("/v1/group-generate",async(req,res)=>{
  const sharedSecret=process.env.GROUP_AI_SHARED_SECRET;
  if(!authorized(req)&&(!sharedSecret||req.header("authorization")!=="Bearer "+sharedSecret))return res.status(401).json({ok:false,error:"unauthorized"});
- const b=req.body as {systemPrompt?:unknown;publicGroupRules?:unknown;prompt?:unknown};
+ const b=req.body as {systemPrompt?:unknown;publicGroupRules?:unknown;privateDmRules?:unknown;prompt?:unknown};
  const systemPrompt=typeof b.systemPrompt==="string"?b.systemPrompt.trim():"";
  const publicGroupRules=typeof b.publicGroupRules==="string"?b.publicGroupRules.trim():"";
+ const privateDmRules=typeof b.privateDmRules==="string"?b.privateDmRules.trim():"";
  const prompt=typeof b.prompt==="string"?b.prompt.trim():"";
  if(systemPrompt.length<20||!prompt||prompt.length>12000)return res.status(400).json({ok:false,error:"systemPrompt and prompt are required"});
  const system="És a IA de conteúdo do WhappNus Group Commander. Produz apenas a mensagem final, sem comentários sobre a tarefa.\n\nINSTRUÇÃO PRINCIPAL:\n"+systemPrompt+"\n\nREGRAS PARA GRUPOS:\n"+publicGroupRules+"\n\nSegurança: não inventes preços, factos, provas ou promessas; não peças dados privados num grupo; não respondas a pessoas específicas como se fosse uma conversa privada; respeita a finalidade comercial e as regras de consentimento.";
