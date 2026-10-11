@@ -65,7 +65,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
   : input.messageType === "image"
    ? "[ANEXO DE IMAGEM RECEBIDO] Analisa visualmente a imagem anexada antes de responder. Identifica apenas elementos que consigas realmente observar. Se a imagem não estiver legível ou acessível, diz isso com naturalidade e pede uma nova imagem ou esclarecimento. Não inventes o conteúdo. " + (attachmentText ? "\nLegenda/texto enviado pelo cliente: " + attachmentText : "O cliente enviou uma imagem sem legenda.")
   : input.messageType === "audio"
-   ? "[ANEXO DE ÁUDIO RECEBIDO] Escuta/interpreta o áudio anexado e responde ao que a pessoa disse. Se não conseguires compreender o áudio, pede para repetir ou escrever a mensagem; nunca inventes uma transcrição. " + (attachmentText && !/^\[O cliente enviou (um áudio|áudio)/i.test(attachmentText) ? "\nTexto/legenda adicional do cliente: " + attachmentText : "")
+   ? "[ANEXO DE ÁUDIO RECEBIDO] Escuta/interpreta o áudio anexado e responde ao que a pessoa disse. Se não conseguires compreender o áudio, pede para repetir ou escrever a mensagem; nunca inventes uma transcrição. " + (attachmentText && !attachmentText.toLowerCase().startsWith("[o cliente enviou um áudio") && !attachmentText.toLowerCase().startsWith("[o cliente enviou áudio") ? "\nTexto/legenda adicional do cliente: " + attachmentText : "")
   : input.text;
  const a:AgentConfig={
   id:String(row.id),name:String(row.name??row.display_name??"Mia"),
