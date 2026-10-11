@@ -1,11 +1,25 @@
 import express from "express";
 import {config} from "./config.js";
 import {generateReply} from "./orchestrator.js";
+import {supabase} from "./db.js";
 import {allow} from "./rate-limit.js";
 import type {GenerateRequest} from "./types.js";
 
 const app=express();app.disable("x-powered-by");app.use(express.json({limit:"256kb"}));
 app.get("/health",(_req,res)=>res.json({ok:true,service:"whappnus-ai-engine",provider:config.AI_PROVIDER,model:config.AI_MODEL}));
+
+// Expire trials/subscriptions even when no new WhatsApp messages arrive.
+async function syncExpiredSubscriptions(){
+ try {
+  const result=await supabase.rpc("suspend_expired_subscriptions");
+  if(result.error) console.error("subscription expiry sync failed:",result.error.message);
+ } catch(e) {
+  console.error("subscription expiry sync failed:",e instanceof Error?e.message:"unknown");
+ }
+}
+void syncExpiredSubscriptions();
+const expiryTimer=setInterval(()=>{void syncExpiredSubscriptions();},60_000);
+expiryTimer.unref();
 function authorized(req:express.Request){return req.header("authorization")==="Bearer "+config.AI_INTERNAL_SECRET;}
 
 app.post("/v1/generate",async(req,res)=>{
