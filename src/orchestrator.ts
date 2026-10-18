@@ -42,7 +42,10 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
   getHistory(input.conversationId),
   loadInboundAttachment(input)
  ]);
- if(settings?.autoreply_enabled===false)throw new Error("AUTO_REPLY_DISABLED");
+ // The IA training playground is a simulation, not a live WhatsApp reply.
+ // It may generate previews while automatic replies are disabled, but the real
+ // inbound-message path must continue to honour the organization setting.
+ if(!input.testMode && settings?.autoreply_enabled===false)throw new Error("AUTO_REPLY_DISABLED");
  if(!ctx.agent)throw new Error("NO_ACTIVE_AGENT");
  await consumeCredit(input.organizationId,input.conversationId);
 
