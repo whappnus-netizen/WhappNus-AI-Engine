@@ -68,7 +68,7 @@ class Compatible implements AIProvider{
    body.max_tokens=Math.min(o.maxTokens,4096);
    body.temperature=o.temperature;
   }
-  const d=await jf(this.url,headers,body,12000);
+  const d=await jf(this.url,headers,body,30000);
   const choice=d.choices?.[0];
   const finishReason=String(choice?.finish_reason??"");
   if(finishReason==="length")throw new Error("AI_RESPONSE_TRUNCATED: provider reached its output token limit");
@@ -100,7 +100,7 @@ class Gemini implements AIProvider{
     const d=await jf(url,{},{
       systemInstruction:{parts:[{text:system}]},contents,
       generationConfig:{maxOutputTokens:Math.min(o.maxTokens,4096),thinkingConfig:{thinkingLevel:"low"}}
-    },15000);
+    },30000);
     const candidate=d.candidates?.[0];
     if(String(candidate?.finishReason??"")==="MAX_TOKENS")throw new Error("AI_RESPONSE_TRUNCATED: Gemini reached its output token limit");
     const t=candidate?.content?.parts?.map((p:any)=>p.text??"").join("").trim();
@@ -132,8 +132,7 @@ class Anthropic implements AIProvider{
      ...attachments.map(a=>({type:"image",source:{type:"base64",media_type:a.mimeType,data:a.data}}))
     ]};
    })
-  },12000);
-  if(String(d.stop_reason??"")==="max_tokens")throw new Error("AI_RESPONSE_TRUNCATED: Anthropic reached its output token limit");
+  },30000);
   if(String(d.stop_reason??"")==="max_tokens")throw new Error("AI_RESPONSE_TRUNCATED: Anthropic reached its output token limit");
   const t=d.content?.filter((x:any)=>x.type==="text").map((x:any)=>x.text).join("").trim();
   if(!t)throw new Error("Anthropic empty response");
