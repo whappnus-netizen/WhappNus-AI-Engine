@@ -82,7 +82,7 @@ class Gemini implements AIProvider{
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number},attachments:MediaAttachment[]=[]){
   if(!config.GEMINI_API_KEY)throw new Error("GEMINI_API_KEY ausente");
   const requested=o.model.replace(/^google\//,"").replace(/^gemini\//,"");
-  const models=[...new Set([requested,"gemini-3.5-flash-lite","gemini-3.1-flash-lite"])];
+  const models=[...new Set([requested,"gemini-3.8-flash","gemini-3.5-flash-lite","gemini-3.1-flash-lite"])];
   const system=m.filter(x=>x.role==="system").map(x=>x.content).join("\n\n");
   const lastUserIndex=m.map(x=>x.role).lastIndexOf("user");
   const contents=m.filter(x=>x.role!=="system").map((x)=>{
@@ -157,14 +157,13 @@ class Resilient implements AIProvider{
    }
   }
   const attempts:AIProvider[]=[];
-  // Prefer the working paid/available provider first. Gemini free-tier quota is currently exhausted.
+  // Try the configured Gemini fallback first; recent production logs showed
+  // OpenAI billing/TPM exhaustion. OpenAI remains available as a fallback.
+  if(config.GEMINI_API_KEY)attempts.push(new Gemini());
   if(config.OPENAI_API_KEY){
    attempts.push(new Compatible("openai","https://api.openai.com/v1/chat/completions",config.OPENAI_API_KEY,"gpt-6-luna"));
-   // Fallback dentro do mesmo fornecedor: modelo multimodal mais leve para
-   // reduzir bloqueios por limite de tokens/minuto sem mudar a ordem dos providers.
    attempts.push(new Compatible("openai","https://api.openai.com/v1/chat/completions",config.OPENAI_API_KEY,"gpt-4o-mini"));
   }
-  if(config.GEMINI_API_KEY)attempts.push(new Gemini());
   // Anthropic is only eligible when its required workspace scope is configured.
   if(config.ANTHROPIC_API_KEY&&process.env.ANTHROPIC_WORKSPACE_ID)attempts.push(new Anthropic());
   if(config.LOVABLE_API_KEY)attempts.push(new Compatible("lovable","https://ai.gateway.lovable.dev/v1/chat/completions",config.LOVABLE_API_KEY,"google/gemini-3.5-flash-lite","Lovable-API-Key"));
