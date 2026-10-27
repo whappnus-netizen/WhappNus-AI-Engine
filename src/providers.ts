@@ -62,14 +62,17 @@ class Compatible implements AIProvider{
   const body:Record<string,unknown>={model,messages:compatibleMessages};
   if(this.name==="openai"){
    // Newer OpenAI models reject max_tokens; use the current Chat Completions field.
-   body.max_completion_tokens=Math.min(o.maxTokens,1024);
+   body.max_completion_tokens=Math.min(o.maxTokens,4096);
    // Avoid sending temperature to reasoning models that may not support it.
   }else{
-   body.max_tokens=Math.min(o.maxTokens,1024);
+   body.max_tokens=Math.min(o.maxTokens,4096);
    body.temperature=o.temperature;
   }
   const d=await jf(this.url,headers,body,12000);
-  const t=d.choices?.[0]?.message?.content;
+  const choice=d.choices?.[0];
+  const finishReason=String(choice?.finish_reason??"");
+  if(finishReason==="length")throw new Error("AI_RESPONSE_TRUNCATED: provider reached its output token limit");
+  const t=choice?.message?.content;
   if(typeof t!=="string"||!t.trim())throw new Error("empty AI response");
   return {text:t.trim(),provider:this.name,model:String(d.model??model)};
  }
@@ -96,9 +99,11 @@ class Gemini implements AIProvider{
     const url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent?key="+encodeURIComponent(config.GEMINI_API_KEY);
     const d=await jf(url,{},{
       systemInstruction:{parts:[{text:system}]},contents,
-      generationConfig:{maxOutputTokens:Math.min(o.maxTokens,1024),thinkingConfig:{thinkingLevel:"low"}}
+      generationConfig:{maxOutputTokens:Math.min(o.maxTokens,4096),thinkingConfig:{thinkingLevel:"low"}}
     },15000);
-    const t=d.candidates?.[0]?.content?.parts?.map((p:any)=>p.text??"").join("").trim();
+    const candidate=d.candidates?.[0];
+    if(String(candidate?.finishReason??"")==="MAX_TOKENS")throw new Error("AI_RESPONSE_TRUNCATED: Gemini reached its output token limit");
+    const t=candidate?.content?.parts?.map((p:any)=>p.text??"").join("").trim();
     if(!t)throw new Error("Gemini empty response");
     if(model!==requested)console.warn("Gemini fallback ativo:",requested,"->",model);
     return {text:t,provider:"gemini",model};
@@ -119,7 +124,7 @@ class Anthropic implements AIProvider{
    "x-api-key":config.ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01",
    "anthropic-workspace-id":process.env.ANTHROPIC_WORKSPACE_ID
   },{
-   model,max_tokens:Math.min(o.maxTokens,1024),temperature:o.temperature,system,
+   model,max_tokens:Math.min(o.maxTokens,4096),temperature:o.temperature,system,
    messages:m.filter(x=>x.role!=="system").map((message,index,array)=>{
     if(index!==array.length-1||attachments.length===0)return message;
     return {...message,content:[
@@ -128,6 +133,7 @@ class Anthropic implements AIProvider{
     ]};
    })
   },12000);
+  if(String(d.stop_reason??"")==="max_tokens")throw new Error("AI_RESPONSE_TRUNCATED: Anthropic reached its output token limit");
   const t=d.content?.filter((x:any)=>x.type==="text").map((x:any)=>x.text).join("").trim();
   if(!t)throw new Error("Anthropic empty response");
   return {text:t,provider:"anthropic",model};
