@@ -13,7 +13,7 @@ const schema=z.object({
   OPENAI_API_KEY:z.string().optional(),
   GEMINI_API_KEY:z.string().optional(),
   ANTHROPIC_API_KEY:z.string().optional(),
-  AI_MAX_OUTPUT_TOKENS:z.coerce.number().int().positive().max(8192).default(800),
+  AI_MAX_OUTPUT_TOKENS:z.coerce.number().int().positive().max(8192).default(2048),
   AI_TEMPERATURE:z.coerce.number().min(0).max(2).default(0.4),
   AI_HISTORY_LIMIT:z.coerce.number().int().positive().max(100).default(20),
   AI_KNOWLEDGE_LIMIT:z.coerce.number().int().positive().max(50).default(12),
