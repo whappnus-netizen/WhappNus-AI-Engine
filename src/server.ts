@@ -30,7 +30,7 @@ app.post("/v1/generate",async(req,res)=>{
  const key=String(b.organizationId)+":"+String(b.fromWaId??"unknown");
  if(!allow(key,config.AI_RATE_LIMIT_PER_MINUTE))return res.status(429).json({ok:false,error:"rate_limited"});
  try{return res.json({ok:true,...await generateReply({...b,text:b.text.trim()} as GenerateRequest)});}
- catch(e){const m=e instanceof Error?e.message:"unknown";if(m==="AUTO_REPLY_DISABLED"||m==="NO_ACTIVE_AGENT")return res.status(409).json({ok:false,error:m});if(["SUBSCRIPTION_REQUIRED","ACCOUNT_SUSPENDED","AI_CONVERSATIONS_EXHAUSTED","PLAN_HAS_NO_AI_CONVERSATIONS"].includes(m))return res.status(402).json({ok:false,error:m});console.error("generation:",m);return res.status(500).json({ok:false,error:"ai_generation_failed"});}
+ catch(e){const m=e instanceof Error?e.message:"unknown";if(m==="AUTO_REPLY_DISABLED"||m==="NO_ACTIVE_AGENT")return res.status(409).json({ok:false,error:m});if(["SUBSCRIPTION_REQUIRED","ACCOUNT_SUSPENDED","AI_MESSAGES_EXHAUSTED","PLAN_HAS_NO_AI_MESSAGES"].includes(m))return res.status(402).json({ok:false,error:m});console.error("generation:",m);return res.status(500).json({ok:false,error:"ai_generation_failed"});}
 });
 app.post("/v1/group-generate",async(req,res)=>{
  const sharedSecret=process.env.GROUP_AI_SHARED_SECRET;
