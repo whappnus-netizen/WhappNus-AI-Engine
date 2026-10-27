@@ -82,7 +82,9 @@ class Gemini implements AIProvider{
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number},attachments:MediaAttachment[]=[]){
   if(!config.GEMINI_API_KEY)throw new Error("GEMINI_API_KEY ausente");
   const requested=o.model.replace(/^google\//,"").replace(/^gemini\//,"");
-  const models=[...new Set([requested,"gemini-3.8-flash","gemini-3.5-flash-lite","gemini-3.1-flash-lite"])];
+  // Keep within the WhatsApp webhook response window: use verified fast models first.
+  // Avoid the retired gemini-2.5-flash and the currently timing-out gemini-3.8-flash.
+  const models=["gemini-3.5-flash-lite","gemini-3.1-flash-lite"];
   const system=m.filter(x=>x.role==="system").map(x=>x.content).join("\n\n");
   const lastUserIndex=m.map(x=>x.role).lastIndexOf("user");
   const contents=m.filter(x=>x.role!=="system").map((x)=>{
@@ -100,7 +102,7 @@ class Gemini implements AIProvider{
     const d=await jf(url,{},{
       systemInstruction:{parts:[{text:system}]},contents,
       generationConfig:{maxOutputTokens:Math.min(o.maxTokens,4096),thinkingConfig:{thinkingLevel:"low"}}
-    },30000);
+    },10000);
     const candidate=d.candidates?.[0];
     if(String(candidate?.finishReason??"")==="MAX_TOKENS")throw new Error("AI_RESPONSE_TRUNCATED: Gemini reached its output token limit");
     const t=candidate?.content?.parts?.map((p:any)=>p.text??"").join("").trim();
