@@ -134,6 +134,7 @@ class Anthropic implements AIProvider{
    })
   },12000);
   if(String(d.stop_reason??"")==="max_tokens")throw new Error("AI_RESPONSE_TRUNCATED: Anthropic reached its output token limit");
+  if(String(d.stop_reason??"")==="max_tokens")throw new Error("AI_RESPONSE_TRUNCATED: Anthropic reached its output token limit");
   const t=d.content?.filter((x:any)=>x.type==="text").map((x:any)=>x.text).join("").trim();
   if(!t)throw new Error("Anthropic empty response");
   return {text:t,provider:"anthropic",model};
