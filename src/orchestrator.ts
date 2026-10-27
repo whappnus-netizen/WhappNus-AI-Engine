@@ -47,7 +47,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  // inbound-message path must continue to honour the organization setting.
  if(!input.testMode && settings?.autoreply_enabled===false)throw new Error("AUTO_REPLY_DISABLED");
  if(!ctx.agent)throw new Error("NO_ACTIVE_AGENT");
- await consumeCredit(input.organizationId,input.conversationId);
+
 
  const row=ctx.agent;
  const featureConfig = row.config && typeof row.config === "object"
@@ -102,6 +102,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  const response=await createProvider().generate(messages,{
   model:a.model??String((settings as Record<string,unknown>|null)?.default_model??config.AI_MODEL),temperature:a.temperature??config.AI_TEMPERATURE,maxTokens:a.maxTokens??config.AI_MAX_OUTPUT_TOKENS
  }, effectiveAttachment ? [effectiveAttachment] : []);
+ if (!input.testMode) await consumeCredit(input.organizationId, input.messageId, input.conversationId);
  const reactionText = input.text.toLowerCase();
  const reactionEligible = featureConfig["reactionsEnabled"] !== false &&
   !["image","audio","video","document"].includes(input.messageType ?? "") &&
