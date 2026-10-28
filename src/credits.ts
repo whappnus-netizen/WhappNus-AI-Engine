@@ -1,20 +1,26 @@
 import { randomUUID } from "node:crypto";
 import { supabase } from "./db.js";
 
-/** Count one AI reply per unique inbound message during the current subscription period. */
-export async function consumeCredit(
-  organizationId: string,
-  messageKey?: string | null,
-  conversationId?: string | null,
-) {
-  const result = await supabase.rpc("consume_ai_message", {
+/**
+ * One billable AI conversation is counted once per subscription period.
+ * A test without a persisted conversation receives a unique ID and is counted
+ * as a test conversation, so the test endpoint cannot bypass plan limits.
+ */
+export async function consumeCredit(organizationId: string, conversationId?: string | null) {
+  const billableConversationId = conversationId ?? randomUUID();
+  const result = await supabase.rpc("consume_ai_conversation", {
     p_organization_id: organizationId,
-    p_message_key: messageKey ?? randomUUID(),
-    p_conversation_id: conversationId ?? null,
+    p_conversation_id: billableConversationId,
   });
-  if (result.error) throw new Error("AI_MESSAGE_LIMIT_CHECK_FAILED");
+
+  if (result.error) throw new Error("AI_CONVERSATION_LIMIT_CHECK_FAILED");
+
   const row = (result.data && typeof result.data === "object" ? result.data : {}) as Record<string, unknown>;
-  if (row.allowed === false) throw new Error(typeof row.reason === "string" ? row.reason : "AI_MESSAGE_LIMIT_REACHED");
+  if (row.allowed === false) {
+    const reason = typeof row.reason === "string" ? row.reason : "AI_CONVERSATION_LIMIT_REACHED";
+    throw new Error(reason);
+  }
+
   return {
     enabled: true,
     remaining: typeof row.remaining === "number" ? row.remaining : null,
