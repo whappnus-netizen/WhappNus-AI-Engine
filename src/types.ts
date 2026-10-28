@@ -17,6 +17,8 @@ export interface GenerateRequest {
   text: string;
   metadata?: Record<string, unknown>;
   agentId?: string | null;
+  /** Internal simulation: generate a preview without requiring WhatsApp auto-reply to be enabled. */
+  testMode?: boolean;
   mediaPath?: string | null;
   mediaMimeType?: string | null;
   messageType?: SupportedAttachmentType | "text" | "system";
@@ -27,5 +29,5 @@ export interface AgentConfig {
 }
 export interface GeneratedResponse {
   text: string; provider: string; model: string; latencyMs: number; intent: string;
-  confidence: number; usedKnowledge: number; agentId: string | null;
+  confidence: number; usedKnowledge: number; agentId: string | null; reactionEmoji?: string | null;
 }
