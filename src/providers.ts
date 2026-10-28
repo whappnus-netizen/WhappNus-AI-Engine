@@ -45,16 +45,8 @@ async function transcribeWithOpenAI(key: string, attachment: MediaAttachment): P
 class Compatible implements AIProvider{
  constructor(private name:string,private url:string,private key:string,private model:string,private keyHeader="Authorization"){}
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number},attachments:MediaAttachment[]=[]){
-  let effectiveMessages = m;
-  let effectiveAttachments = attachments;
-  if (this.name === "openai" && attachments.length > 0 && attachments.every(a => a.type === "audio")) {
-   const transcripts = await Promise.all(attachments.map(a => transcribeWithOpenAI(this.key, a)));
-   const lastUserIndex = m.map(x => x.role).lastIndexOf("user");
-   effectiveMessages = m.map((message,index) => index === lastUserIndex
-    ? {...message, content: message.content + "\n\nTranscrição do áudio do cliente: " + transcripts.join("\n")}
-    : message);
-   effectiveAttachments = [];
-  }
+  const effectiveMessages = m;
+  const effectiveAttachments = attachments;
   if(effectiveAttachments.some(a=>a.type!=="image"))throw new Error(this.name+" não suporta este tipo de anexo; a tentar o próximo provedor");
   const headers:Record<string,string>={};
   headers[this.keyHeader]=this.keyHeader==="Authorization"?"Bearer "+this.key:this.key;
@@ -70,14 +62,17 @@ class Compatible implements AIProvider{
   const body:Record<string,unknown>={model,messages:compatibleMessages};
   if(this.name==="openai"){
    // Newer OpenAI models reject max_tokens; use the current Chat Completions field.
-   body.max_completion_tokens=Math.min(o.maxTokens,1024);
+   body.max_completion_tokens=Math.min(o.maxTokens,4096);
    // Avoid sending temperature to reasoning models that may not support it.
   }else{
-   body.max_tokens=Math.min(o.maxTokens,1024);
+   body.max_tokens=Math.min(o.maxTokens,4096);
    body.temperature=o.temperature;
   }
-  const d=await jf(this.url,headers,body,12000);
-  const t=d.choices?.[0]?.message?.content;
+  const d=await jf(this.url,headers,body,30000);
+  const choice=d.choices?.[0];
+  const finishReason=String(choice?.finish_reason??"");
+  if(finishReason==="length")throw new Error("AI_RESPONSE_TRUNCATED: provider reached its output token limit");
+  const t=choice?.message?.content;
   if(typeof t!=="string"||!t.trim())throw new Error("empty AI response");
   return {text:t.trim(),provider:this.name,model:String(d.model??model)};
  }
@@ -87,7 +82,9 @@ class Gemini implements AIProvider{
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number},attachments:MediaAttachment[]=[]){
   if(!config.GEMINI_API_KEY)throw new Error("GEMINI_API_KEY ausente");
   const requested=o.model.replace(/^google\//,"").replace(/^gemini\//,"");
-  const models=[...new Set([requested,"gemini-3.5-flash-lite","gemini-3.1-flash-lite"])];
+  // Keep within the WhatsApp webhook response window: use verified fast models first.
+  // Avoid the retired gemini-2.5-flash and the currently timing-out gemini-3.8-flash.
+  const models=["gemini-3.5-flash-lite","gemini-3.1-flash-lite"];
   const system=m.filter(x=>x.role==="system").map(x=>x.content).join("\n\n");
   const lastUserIndex=m.map(x=>x.role).lastIndexOf("user");
   const contents=m.filter(x=>x.role!=="system").map((x)=>{
@@ -104,9 +101,11 @@ class Gemini implements AIProvider{
     const url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent?key="+encodeURIComponent(config.GEMINI_API_KEY);
     const d=await jf(url,{},{
       systemInstruction:{parts:[{text:system}]},contents,
-      generationConfig:{maxOutputTokens:Math.min(o.maxTokens,1024),thinkingConfig:{thinkingLevel:"low"}}
-    },15000);
-    const t=d.candidates?.[0]?.content?.parts?.map((p:any)=>p.text??"").join("").trim();
+      generationConfig:{maxOutputTokens:Math.min(o.maxTokens,4096),thinkingConfig:{thinkingLevel:"low"}}
+    },10000);
+    const candidate=d.candidates?.[0];
+    if(String(candidate?.finishReason??"")==="MAX_TOKENS")throw new Error("AI_RESPONSE_TRUNCATED: Gemini reached its output token limit");
+    const t=candidate?.content?.parts?.map((p:any)=>p.text??"").join("").trim();
     if(!t)throw new Error("Gemini empty response");
     if(model!==requested)console.warn("Gemini fallback ativo:",requested,"->",model);
     return {text:t,provider:"gemini",model};
@@ -127,7 +126,7 @@ class Anthropic implements AIProvider{
    "x-api-key":config.ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01",
    "anthropic-workspace-id":process.env.ANTHROPIC_WORKSPACE_ID
   },{
-   model,max_tokens:Math.min(o.maxTokens,1024),temperature:o.temperature,system,
+   model,max_tokens:Math.min(o.maxTokens,4096),temperature:o.temperature,system,
    messages:m.filter(x=>x.role!=="system").map((message,index,array)=>{
     if(index!==array.length-1||attachments.length===0)return message;
     return {...message,content:[
@@ -135,7 +134,8 @@ class Anthropic implements AIProvider{
      ...attachments.map(a=>({type:"image",source:{type:"base64",media_type:a.mimeType,data:a.data}}))
     ]};
    })
-  },12000);
+  },30000);
+  if(String(d.stop_reason??"")==="max_tokens")throw new Error("AI_RESPONSE_TRUNCATED: Anthropic reached its output token limit");
   const t=d.content?.filter((x:any)=>x.type==="text").map((x:any)=>x.text).join("").trim();
   if(!t)throw new Error("Anthropic empty response");
   return {text:t,provider:"anthropic",model};
@@ -144,17 +144,35 @@ class Anthropic implements AIProvider{
 
 class Resilient implements AIProvider{
  async generate(m:ChatMessage[],o:{model:string;temperature:number;maxTokens:number},attachments:MediaAttachment[]=[]){
+  let effectiveMessages = m;
+  let effectiveAttachments = attachments;
+  if (config.OPENAI_API_KEY && attachments.length > 0 && attachments.every(a => a.type === "audio")) {
+   try {
+    const transcripts = await Promise.all(attachments.map(a => transcribeWithOpenAI(config.OPENAI_API_KEY!, a)));
+    const lastUserIndex = m.map(x => x.role).lastIndexOf("user");
+    effectiveMessages = m.map((message,index) => index === lastUserIndex
+     ? {...message, content: message.content + "\n\nTranscrição do áudio do cliente: " + transcripts.join("\n")}
+     : message);
+    effectiveAttachments = [];
+   } catch (error) {
+    console.warn("Transcrição prévia falhou; será tentada a compreensão nativa do provedor:", error instanceof Error ? error.message : String(error));
+   }
+  }
   const attempts:AIProvider[]=[];
-  // Prefer the working paid/available provider first. Gemini free-tier quota is currently exhausted.
-  if(config.OPENAI_API_KEY)attempts.push(new Compatible("openai","https://api.openai.com/v1/chat/completions",config.OPENAI_API_KEY,"gpt-6-luna"));
+  // Try the configured Gemini fallback first; recent production logs showed
+  // OpenAI billing/TPM exhaustion. OpenAI remains available as a fallback.
   if(config.GEMINI_API_KEY)attempts.push(new Gemini());
+  if(config.OPENAI_API_KEY){
+   attempts.push(new Compatible("openai","https://api.openai.com/v1/chat/completions",config.OPENAI_API_KEY,"gpt-6-luna"));
+   attempts.push(new Compatible("openai","https://api.openai.com/v1/chat/completions",config.OPENAI_API_KEY,"gpt-4o-mini"));
+  }
   // Anthropic is only eligible when its required workspace scope is configured.
   if(config.ANTHROPIC_API_KEY&&process.env.ANTHROPIC_WORKSPACE_ID)attempts.push(new Anthropic());
   if(config.LOVABLE_API_KEY)attempts.push(new Compatible("lovable","https://ai.gateway.lovable.dev/v1/chat/completions",config.LOVABLE_API_KEY,"google/gemini-3.5-flash-lite","Lovable-API-Key"));
   if(!attempts.length)throw new Error("Nenhum provedor de IA funcional configurado: configure OPENAI_API_KEY, GEMINI_API_KEY ou LOVABLE_API_KEY; Anthropic requer ANTHROPIC_WORKSPACE_ID");
   let lastError:unknown=null;
   for(const provider of attempts){
-   try{const result=await provider.generate(m,o,attachments);console.log("AI provider selecionado:",result.provider,result.model);return result;}
+   try{const result=await provider.generate(effectiveMessages,o,effectiveAttachments);console.log("AI provider selecionado:",result.provider,result.model);return result;}
    catch(e){lastError=e;console.error("AI provider falhou; tentando próximo:",e instanceof Error?e.message:String(e));}
   }
   throw lastError instanceof Error?lastError:new Error("Todos os provedores de IA falharam");

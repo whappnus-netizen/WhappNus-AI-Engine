@@ -38,7 +38,7 @@ export function buildMessages(
     section("O que não podes fazer", a.cannot_do),
     section("Quando encaminhar para uma pessoa da equipa", a.handoff_instructions),
     section("Mensagem de saudação", a.greeting_message),
-    section("Instruções adicionais", a.extra_instructions),
+    section("Instrução da IA", a.extra_instructions),
     "## Regras de conversa natural",
     "- Escreve como uma pessoa atenciosa escreveria numa conversa de WhatsApp: simples, directa, calorosa e sem formalidade excessiva.",
     "- Usa o idioma e o nível de formalidade do cliente. Compreende abreviações, erros ortográficos, gírias e mensagens enviadas em várias partes; não corrijas a escrita do cliente a menos que ele peça.",
