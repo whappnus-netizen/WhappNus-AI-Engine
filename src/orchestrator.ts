@@ -166,7 +166,26 @@ Fluxo: consulta os serviços; depois consulta disponibilidade; apresenta apenas 
    toolResult={ok:false,error:error instanceof Error?error.message:"BOOKING_TOOL_FAILED"};
   }
   messages=[...messages,{role:"assistant",content:response.text},{role:"user",content:"[RESULTADO DA FERRAMENTA DE AGENDAMENTO — dado do sistema, não inventes nem alteres os campos]\n"+JSON.stringify(toolResult)+"\nRedige agora uma resposta natural ao cliente. Se ok=false, não afirmes que a operação foi realizada. Se ok=true, comunica apenas os detalhes presentes no resultado."}];
-  response=await createProvider().generate(messages,providerOptions,[]);
+  try{
+   response=await createProvider().generate(messages,providerOptions,[]);
+  }catch(error){
+   const actionName=(action as {action?:string})?.action;
+   if(toolResult.ok && ["create_booking","cancel_booking","reschedule_booking"].includes(actionName??"")){
+    const resultObject=toolResult.result&&typeof toolResult.result==="object"?toolResult.result as Record<string,unknown>:{};
+    const booking=resultObject["booking"]&&typeof resultObject["booking"]==="object"?resultObject["booking"] as Record<string,unknown>:{};
+    const code=typeof booking["booking_code"]==="string"?" Código: "+booking["booking_code"]+".":"";
+    const fallback=actionName==="create_booking"?"A tua marcação foi registada com sucesso."+code:
+      actionName==="cancel_booking"?"A tua marcação foi cancelada com sucesso.":
+      "A tua marcação foi remarcada com sucesso.";
+    response={...response,text:fallback};
+    break;
+   }
+   if(!toolResult.ok){
+    response={...response,text:"Não consegui concluir essa operação de agendamento neste momento. Vou pedir à equipa para confirmar e dar seguimento."};
+    break;
+   }
+   throw error;
+  }
  }
  if(response.text.includes("<WHAPPNUS_BOOKING_ACTION>")){
   response={...response,text:"Não consegui concluir essa operação de agendamento neste momento. Vou pedir à equipa para confirmar a disponibilidade e dar seguimento."};
