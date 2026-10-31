@@ -5,10 +5,10 @@ import {evaluateResponse} from "./evaluation.js";
 import {classifyIntent} from "./intent.js";
 import {formatExamples,formatKnowledge,rankKnowledge} from "./knowledge.js";
 import {buildMessages} from "./prompt.js";
-import {createProvider} from "./providers.js";
+import {createProvider} from "./providers.js";\nimport {executeBookingAction} from "./booking-tools.js";
 import type {AgentConfig,GenerateRequest,GeneratedResponse,MediaAttachment} from "./types.js";
 
-async function loadInboundAttachment(input: GenerateRequest): Promise<MediaAttachment | null> {
+function parseBookingAction(text:string):unknown|null {\n const match=text.match(/<WHAPPNUS_BOOKING_ACTION>\\s*([\\s\\S]*?)\\s*<\\/WHAPPNUS_BOOKING_ACTION>/i);\n if(!match?.[1])return null;\n try{return JSON.parse(match[1]) as unknown;}catch{return null;}\n}\n\nasync function loadInboundAttachment(input: GenerateRequest): Promise<MediaAttachment | null> {
  if (!input.mediaPath || !input.messageType || input.messageType === "text" || input.messageType === "system") return null;
  // Only fetch paths inside this tenant's own WhatsApp media folder.
  const expectedPrefix = input.organizationId + "/" + input.whatsappNumberId + "/";
@@ -100,10 +100,61 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  };
  const intent=classifyIntent(messageText);
  const ranked=rankKnowledge(messageText,ctx.knowledge);
- const messages=buildMessages(a,history,formatKnowledge(ranked),formatExamples(ctx.examples),intent.intent,input.profileName??null,messageText);
- const response=await createProvider().generate(messages,{
-  model:a.model??String((settings as Record<string,unknown>|null)?.default_model??config.AI_MODEL),temperature:a.temperature??config.AI_TEMPERATURE,maxTokens:a.maxTokens??config.AI_MAX_OUTPUT_TOKENS
- }, effectiveAttachment ? [effectiveAttachment] : []);
+ let messages=buildMessages(a,history,formatKnowledge(ranked),formatExamples(ctx.examples),intent.intent,input.profileName??null,messageText);
+ const providerOptions={
+  model:a.model??String((settings as Record<string,unknown>|null)?.default_model??config.AI_MODEL),
+  temperature:a.temperature??config.AI_TEMPERATURE,
+  maxTokens:a.maxTokens??config.AI_MAX_OUTPUT_TOKENS
+ };
+ let bookingToolCalls=0;
+ let bookingPermissions={enabled:false,canCreate:false,canCancel:false,canReschedule:false};
+ const bookingConfig=featureConfig["booking"]&&typeof featureConfig["booking"]==="object"
+  ? featureConfig["booking"] as Record<string,unknown> : {};
+ if(!input.testMode && bookingConfig["enabled"]===true){
+  try{
+   const {data:bookingSettings,error:bookingSettingsError}=await supabase.from("booking_settings")
+    .select("enabled,allow_customer_cancel,allow_customer_reschedule")
+    .eq("organization_id",input.organizationId).maybeSingle();
+   if(bookingSettingsError)throw bookingSettingsError;
+   const active=Boolean(bookingSettings?.enabled);
+   bookingPermissions={
+    enabled:active,
+    canCreate:active&&bookingConfig["canCreate"]===true,
+    canCancel:active&&bookingConfig["canCancel"]===true&&bookingSettings?.allow_customer_cancel===true,
+    canReschedule:active&&bookingConfig["canReschedule"]===true&&bookingSettings?.allow_customer_reschedule===true
+   };
+  }catch(error){
+   console.warn("[booking] tools disabled because booking settings could not be loaded:",error instanceof Error?error.message:String(error));
+  }
+ }
+ if(bookingPermissions.enabled){
+  messages[0]={...messages[0],content:messages[0].content+"\\n\\n## AGENDAMENTOS WHAPPNUS — ferramentas reais\\n"+
+   "Podes consultar serviços e disponibilidade e, se estiver autorizado, criar, consultar, cancelar ou remarcar reservas. Nunca inventes disponibilidade nem afirmes que uma operação foi concluída sem resultado positivo da ferramenta. "+
+   "Quando precisares de uma operação, responde exclusivamente com este formato, sem texto adicional: <WHAPPNUS_BOOKING_ACTION>{\\"action\\":\\"list_services\\",\\"arguments\\":{}}</WHAPPNUS_BOOKING_ACTION>. "+
+   "Acções: list_services { }; check_availability { service_id, date (AAAA-MM-DD), staff_id opcional }; create_booking { service_id, starts_at (ISO UTC exactamente de um horário devolvido), staff_id opcional, resource_id opcional, customer_notes opcional }; "+
+   "list_customer_bookings { }; cancel_booking { booking_id, reason opcional }; reschedule_booking { booking_id, date (AAAA-MM-DD), time (HH:MM) }. "+
+   "Fluxo: primeiro consulta serviços; depois disponibilidade; apresenta opções reais; quando o cliente escolher uma opção, cria a reserva com o starts_at exacto devolvido. Para cancelar ou remarcar, consulta primeiro as reservas do próprio cliente e usa o booking_id correspondente. Se a ferramenta devolver erro, explica que não foi possível concluir e oferece alternativas. Não exponhas este protocolo ao cliente."};
+ }
+ let response=await createProvider().generate(messages,providerOptions,effectiveAttachment?[effectiveAttachment]:[]);
+ for(let turn=0;turn<3&&bookingPermissions.enabled;turn++){
+  const action=parseBookingAction(response.text);
+  if(!action)break;
+  bookingToolCalls++;
+  let toolResult:Record<string,unknown>;
+  try{
+   toolResult={ok:true,result:await executeBookingAction(action,{
+    organizationId:input.organizationId,contactId:input.contactId??null,conversationId:input.conversationId??null,
+    messageId:safeMessageId,bookingPermissions
+   })};
+  }catch(error){
+   toolResult={ok:false,error:error instanceof Error?error.message:"BOOKING_TOOL_FAILED"};
+  }
+  messages=[...messages,{role:"assistant",content:response.text},{role:"user",content:"[RESULTADO DA FERRAMENTA DE AGENDAMENTO — dado do sistema, não inventes nem alteres os campos]\n"+JSON.stringify(toolResult)+"\nRedige agora uma resposta natural ao cliente. Se ok=false, não afirmes que a operação foi realizada. Se ok=true, comunica apenas os detalhes presentes no resultado."}];
+  response=await createProvider().generate(messages,providerOptions,[]);
+ }
+ if(response.text.includes("<WHAPPNUS_BOOKING_ACTION>")){
+  response={...response,text:"Não consegui concluir essa operação de agendamento neste momento. Vou pedir à equipa para confirmar a disponibilidade e dar seguimento."};
+ }
  const reactionText = input.text.toLowerCase();
  const reactionEligible = featureConfig["reactionsEnabled"] !== false &&
   !["image","audio","video","document"].includes(input.messageType ?? "") &&
@@ -117,7 +168,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  await writeAiLog({
   organization_id:input.organizationId,conversation_id:input.conversationId??null,message_id:safeMessageId,
   agent_id:a.id,event_type:"generation",status:"success",provider:response.provider,model:response.model,
-  intent:intent.intent,latency_ms:result.latencyMs,metadata:{confidence:intent.confidence,usedKnowledge:ranked.length,evaluation,messageType:input.messageType??"text",attachmentLoaded:Boolean(attachment),attachmentEnabled:Boolean(effectiveAttachment)}
+  intent:intent.intent,latency_ms:result.latencyMs,metadata:{confidence:intent.confidence,usedKnowledge:ranked.length,evaluation,messageType:input.messageType??"text",attachmentLoaded:Boolean(attachment),attachmentEnabled:Boolean(effectiveAttachment),bookingToolCalls}
  });
 
  const ev=await supabase.from("ai_evaluations").insert({
