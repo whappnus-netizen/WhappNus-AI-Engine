@@ -162,19 +162,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
    toolResult={ok:false,error:error instanceof Error?error.message:"BOOKING_TOOL_FAILED"};
   }
   messages=[...messages,{role:"assistant",content:response.text},{role:"user",content:"[RESULTADO DA FERRAMENTA DE AGENDAMENTO — dado do sistema, não inventes nem alteres os campos]\n"+JSON.stringify(toolResult)+"\nRedige agora uma resposta natural ao cliente. Se ok=false, não afirmes que a operação foi realizada. Se ok=true, comunica apenas os detalhes presentes no resultado."}];
-  try{
-   try{
-   response=await createProvider().generate(messages,providerOptions,[]);
-  }catch(error){
-   const actionName=(action as {action?:string})?.action;
-   if(toolResult.ok&&["create_booking","cancel_booking","reschedule_booking"].includes(actionName??"")){
-    response={...response,text:actionName==="create_booking"?"A tua marcação foi registada com sucesso.":actionName==="cancel_booking"?"A tua marcação foi cancelada com sucesso.":"A tua marcação foi remarcada com sucesso."};
-    break;
-   }
-   if(!toolResult.ok){response={...response,text:"Não consegui concluir essa operação de agendamento neste momento. Vou pedir à equipa para confirmar e dar seguimento."};break;}
-   throw error;
-  }
-  }catch(error){
+  try{\n   response=await createProvider().generate(messages,providerOptions,[]);\n  }catch(error){
    const actionName=(action as {action?:string})?.action;
    if(toolResult.ok && ["create_booking","cancel_booking","reschedule_booking"].includes(actionName??"")){
     const resultObject=toolResult.result&&typeof toolResult.result==="object"?toolResult.result as Record<string,unknown>:{};
