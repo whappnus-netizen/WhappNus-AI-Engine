@@ -67,8 +67,8 @@ async function getAvailability(ctx:ToolContext,serviceId:string,date:string,requ
  const [staffRows,resourceRows,staffRules,resourceRules]=await Promise.all([
   staffIds.length?supabase.from("booking_staff").select("id,display_name,is_active").eq("organization_id",ctx.organizationId).in("id",staffIds):Promise.resolve({data:[],error:null}),
   resourceIds.length?supabase.from("booking_resources").select("id,name,is_active").eq("organization_id",ctx.organizationId).in("id",resourceIds):Promise.resolve({data:[],error:null}),
-  staffIds.length?supabase.from("booking_availability_rules").select("*").eq("organization_id",ctx.organizationId).eq("scope_type","staff").in("scope_id",staffIds).eq("weekday",weekday).eq("is_available",true):Promise.resolve({data:[],error:null}),
-  resourceIds.length?supabase.from("booking_availability_rules").select("*").eq("organization_id",ctx.organizationId).eq("scope_type","resource").in("scope_id",resourceIds).eq("weekday",weekday).eq("is_available",true):Promise.resolve({data:[],error:null})
+  staffIds.length?supabase.from("booking_availability_rules").select("*").eq("organization_id",ctx.organizationId).eq("scope_type","staff").in("scope_id",staffIds).eq("is_available",true):Promise.resolve({data:[],error:null}),
+  resourceIds.length?supabase.from("booking_availability_rules").select("*").eq("organization_id",ctx.organizationId).eq("scope_type","resource").in("scope_id",resourceIds).eq("is_available",true):Promise.resolve({data:[],error:null})
  ]);
  if(staffRows.error||resourceRows.error||staffRules.error||resourceRules.error)throw new Error("BOOKING_AVAILABILITY_LOOKUP_FAILED");
  const activeStaff=(staffRows.data??[]).filter(x=>x.is_active);
