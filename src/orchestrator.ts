@@ -170,7 +170,8 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
     const resultObject=toolResult.result&&typeof toolResult.result==="object"?toolResult.result as Record<string,unknown>:{};
     const booking=resultObject["booking"]&&typeof resultObject["booking"]==="object"?resultObject["booking"] as Record<string,unknown>:{};
     const code=typeof booking["booking_code"]==="string"?" Código: "+booking["booking_code"]+".":"";
-    const fallback=actionName==="create_booking"?"A tua marcação foi registada com sucesso."+code:
+    const pending=booking["status"]==="pending_confirmation";
+    const fallback=actionName==="create_booking"?(pending?"Recebemos o teu pedido de agendamento. Está pendente de aprovação pela equipa.":"A tua marcação está confirmada."+code):
       actionName==="cancel_booking"?"A tua marcação foi cancelada com sucesso.":
       "A tua marcação foi remarcada com sucesso.";
     response={...response,text:fallback};
