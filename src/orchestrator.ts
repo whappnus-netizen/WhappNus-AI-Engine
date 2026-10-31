@@ -5,7 +5,7 @@ import {evaluateResponse} from "./evaluation.js";
 import {classifyIntent} from "./intent.js";
 import {formatExamples,formatKnowledge,rankKnowledge} from "./knowledge.js";
 import {buildMessages} from "./prompt.js";
-import {createProvider} from "./providers.js";\nimport {executeBookingAction} from "./booking-tools.js";
+import {createProvider} from "./providers.js"; import {executeBookingAction} from "./booking-tools.js";
 import type {AgentConfig,GenerateRequest,GeneratedResponse,MediaAttachment} from "./types.js";
 
 function parseBookingAction(text:string):unknown|null {
