@@ -62,7 +62,9 @@ async function getAvailability(ctx:ToolContext,serviceId:string,date:string,requ
   supabase.from("bookings").select("starts_at,ends_at,staff_id,resource_id,service_id,status").eq("organization_id",ctx.organizationId).gte("starts_at",localStart.toISOString()).lt("starts_at",new Date(localEnd.getTime()+60000).toISOString()).in("status",["pending_confirmation","confirmed","in_progress"])
  ]);
  for(const q of [orgRules,staffLinks,resourceLinks,exceptions,existing])if(q.error)throw new Error(q.error.message);
- const allowedStaffIds=(staffLinks??[]).map(x=>x.staff_id);\n if(requestedStaffId && !allowedStaffIds.includes(requestedStaffId)) return [];\n const staffIds=requestedStaffId?[requestedStaffId]:allowedStaffIds;
+ const allowedStaffIds=(staffLinks??[]).map(x=>x.staff_id);
+ if(requestedStaffId && !allowedStaffIds.includes(requestedStaffId)) return [];
+ const staffIds=requestedStaffId?[requestedStaffId]:allowedStaffIds;
  const resourceIds=(resourceLinks??[]).map(x=>x.resource_id);
  const [staffRows,resourceRows,staffRules,resourceRules]=await Promise.all([
   staffIds.length?supabase.from("booking_staff").select("id,display_name,is_active").eq("organization_id",ctx.organizationId).in("id",staffIds):Promise.resolve({data:[],error:null}),
