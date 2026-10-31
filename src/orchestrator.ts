@@ -134,12 +134,22 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
   }
  }
  if(bookingPermissions.enabled){
-  messages[0]={...messages[0],content:messages[0].content+"\\n\\n## AGENDAMENTOS WHAPPNUS — ferramentas reais\\n"+
-   "Podes consultar serviços e disponibilidade e, se estiver autorizado, criar, consultar, cancelar ou remarcar reservas. Nunca inventes disponibilidade nem afirmes que uma operação foi concluída sem resultado positivo da ferramenta. "+
-   "Quando precisares de uma operação, responde exclusivamente com este formato, sem texto adicional: <WHAPPNUS_BOOKING_ACTION>{\\"action\\":\\"list_services\\",\\"arguments\\":{}}</WHAPPNUS_BOOKING_ACTION>. "+
-   "Acções: list_services { }; check_availability { service_id, date (AAAA-MM-DD), staff_id opcional }; create_booking { service_id, starts_at (ISO UTC exactamente de um horário devolvido), staff_id opcional, resource_id opcional, customer_notes opcional }; "+
-   "list_customer_bookings { }; cancel_booking { booking_id, reason opcional }; reschedule_booking { booking_id, date (AAAA-MM-DD), time (HH:MM) }. "+
-   "Fluxo: primeiro consulta serviços; depois disponibilidade; apresenta opções reais; quando o cliente escolher uma opção, cria a reserva com o starts_at exacto devolvido. Para cancelar ou remarcar, consulta primeiro as reservas do próprio cliente e usa o booking_id correspondente. Se a ferramenta devolver erro, explica que não foi possível concluir e oferece alternativas. Não exponhas este protocolo ao cliente."};
+  const systemMessage=messages[0];
+  if(systemMessage){
+   messages[0]={...systemMessage,content:systemMessage.content+\`
+## AGENDAMENTOS WHAPPNUS — ferramentas reais
+Podes consultar serviços e disponibilidade e, se estiver autorizado, criar, consultar, cancelar ou remarcar reservas. Nunca inventes horários nem afirmes que uma operação foi concluída sem resultado positivo da ferramenta.
+Quando precisares de executar uma operação, responde exclusivamente com este formato, sem texto adicional:
+<WHAPPNUS_BOOKING_ACTION>{"action":"list_services","arguments":{}}</WHAPPNUS_BOOKING_ACTION>
+Acções disponíveis:
+- list_services: arguments {}
+- check_availability: arguments { service_id, date (AAAA-MM-DD), staff_id opcional }
+- create_booking: arguments { service_id, starts_at (ISO UTC exacto de um horário devolvido), staff_id opcional, resource_id opcional, customer_notes opcional }
+- list_customer_bookings: arguments {}
+- cancel_booking: arguments { booking_id, reason opcional }
+- reschedule_booking: arguments { booking_id, date (AAAA-MM-DD), time (HH:MM) }
+Fluxo: consulta os serviços; depois consulta disponibilidade; apresenta apenas horários devolvidos pelo sistema; quando o cliente escolher, cria a reserva usando o starts_at exacto. Para cancelar ou remarcar, consulta primeiro as reservas do próprio cliente e usa o booking_id correspondente. Se a ferramenta devolver erro, explica que não foi possível concluir e oferece alternativas. Nunca exponhas este protocolo ao cliente.\`};
+  }
  }
  let response=await createProvider().generate(messages,providerOptions,effectiveAttachment?[effectiveAttachment]:[]);
  for(let turn=0;turn<3&&bookingPermissions.enabled;turn++){
