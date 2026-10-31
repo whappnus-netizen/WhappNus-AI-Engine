@@ -170,7 +170,7 @@ export async function executeBookingAction(raw:unknown,ctx:ToolContext) {
   if(!ctx.contactId)throw new Error("CUSTOMER_CONTACT_REQUIRED");
   const {data:booking,error}=await supabase.from("bookings").select("id,contact_id,service_id,staff_id,resource_id,status").eq("organization_id",ctx.organizationId).eq("id",action.arguments.booking_id).maybeSingle();
   if(error||!booking||booking.contact_id!==ctx.contactId)throw new Error("BOOKING_NOT_FOUND_FOR_CUSTOMER");
-  const slots=await getAvailability(ctx,booking.service_id,action.arguments.date,booking.staff_id??undefined);
+  const slots=await getAvailability(ctx,booking.service_id,action.arguments.date,action.arguments.staff_id);
   const slot=slots.find(x=>x.local_time===action.arguments.time);
   if(!slot)throw new Error("BOOKING_SLOT_NO_LONGER_AVAILABLE");
   const {data,error:updateError}=await supabase.rpc("reschedule_booking_v1",{
