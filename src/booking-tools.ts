@@ -35,7 +35,7 @@ function overlaps(aStart:Date,aEnd:Date,bStart:string,bEnd:string) {
  return aStart.getTime()<new Date(bEnd).getTime() && aEnd.getTime()>new Date(bStart).getTime();
 }
 
-async function getAvailability(ctx:ToolContext,serviceId:string,date:string,requestedStaffId?:string) {
+async function getAvailability(ctx:ToolContext,serviceId:string,date:string,requestedStaffId?:string,excludeBookingId?:string) {
  const [{data:org,error:orgError},{data:settings,error:settingsError},{data:service,error:serviceError}] = await Promise.all([
   supabase.from("organizations").select("timezone").eq("id",ctx.organizationId).single(),
   supabase.from("booking_settings").select("*").eq("organization_id",ctx.organizationId).maybeSingle(),
@@ -54,12 +54,16 @@ async function getAvailability(ctx:ToolContext,serviceId:string,date:string,requ
  const maxDate=Date.now()+settings.max_days_ahead*86400000;
  if(localStart.getTime()>maxDate)return [];
  const weekday=localParts(localStart,timezone).weekday;
+ let existingBookingsQuery=supabase.from("bookings").select("id,starts_at,ends_at,staff_id,resource_id,service_id,status")
+  .eq("organization_id",ctx.organizationId).lt("starts_at",new Date(localEnd.getTime()+60000).toISOString())
+  .gt("ends_at",localStart.toISOString()).in("status",["pending_confirmation","confirmed","in_progress"]);
+ if(excludeBookingId) existingBookingsQuery=existingBookingsQuery.neq("id",excludeBookingId);
  const [{data:orgRules,error:orgRulesError},{data:staffLinks,error:staffLinksError},{data:resourceLinks,error:resourceLinksError},{data:exceptions,error:exceptionsError},{data:existing,error:existingError}] = await Promise.all([
   supabase.from("booking_availability_rules").select("*").eq("organization_id",ctx.organizationId).eq("scope_type","organization").eq("weekday",weekday).eq("is_available",true),
   supabase.from("booking_service_staff").select("staff_id").eq("organization_id",ctx.organizationId).eq("service_id",serviceId),
   supabase.from("booking_service_resources").select("resource_id").eq("organization_id",ctx.organizationId).eq("service_id",serviceId),
   supabase.from("booking_availability_exceptions").select("*").eq("organization_id",ctx.organizationId).lt("starts_at",localEnd.toISOString()).gt("ends_at",localStart.toISOString()),
-  supabase.from("bookings").select("starts_at,ends_at,staff_id,resource_id,service_id,status").eq("organization_id",ctx.organizationId).lt("starts_at",new Date(localEnd.getTime()+60000).toISOString()).gt("ends_at",localStart.toISOString()).in("status",["pending_confirmation","confirmed","in_progress"])
+  existingBookingsQuery
  ]);
  for(const error of [orgRulesError,staffLinksError,resourceLinksError,exceptionsError,existingError])if(error)throw new Error(error.message);
  const allowedStaffIds=(staffLinks??[]).map(x=>x.staff_id);
@@ -160,6 +164,10 @@ export async function executeBookingAction(raw:unknown,ctx:ToolContext) {
    p_customer_notes:action.arguments.customer_notes??null,p_idempotency_key:key,p_actor_user_id:null
   });
   if(error)throw new Error(error.message);
+  const createdBooking=(data as {booking?:{status?:string}}|null)?.booking;
+  if(!createdBooking || !["confirmed","pending_confirmation"].includes(createdBooking.status??"")) {
+   throw new Error("BOOKING_RESERVATION_NOT_ACTIVE");
+  }
   return data;
  }
  if(action.action==="cancel_booking"){
@@ -177,7 +185,7 @@ export async function executeBookingAction(raw:unknown,ctx:ToolContext) {
   if(error||!booking||booking.contact_id!==ctx.contactId)throw new Error("BOOKING_NOT_FOUND_FOR_CUSTOMER");
   const preferredStaff=action.arguments.staff_id??booking.staff_id??undefined;
   const preferredResource=action.arguments.resource_id??booking.resource_id??undefined;
-  const slots=await getAvailability(ctx,booking.service_id,action.arguments.date,preferredStaff);
+  const slots=await getAvailability(ctx,booking.service_id,action.arguments.date,preferredStaff,booking.id);
   const slot=slots.find(x=>x.local_time===action.arguments.time &&
    (!preferredStaff || x.staff_id===preferredStaff) && (!preferredResource || x.resource_id===preferredResource));
   if(!slot)throw new Error("BOOKING_SLOT_NO_LONGER_AVAILABLE");
