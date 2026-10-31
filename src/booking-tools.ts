@@ -42,7 +42,7 @@ async function getAvailability(ctx:ToolContext,serviceId:string,date:string,requ
   supabase.from("booking_services").select("*").eq("organization_id",ctx.organizationId).eq("id",serviceId).eq("is_active",true).maybeSingle()
  ]);
  if(orgError||!org)throw new Error("ORGANIZATION_NOT_FOUND");
- if(settingsError||!settings?.enabled)throw new Error("BOOKING_FEATURE_DISABLED");
+ if(settingsError||!settings?.enabled)throw new Error("BOOKING_FEATURE_DISABLED"); const {error:expiryError}=await supabase.rpc("expire_pending_bookings_v1",{p_organization_id:ctx.organizationId}); if(expiryError)throw new Error(expiryError.message);
  if(serviceError||!service)throw new Error("BOOKING_SERVICE_NOT_AVAILABLE");
  const timezone=org.timezone||"Africa/Luanda";
  const localStart=localToUtc(date,"00:00",timezone);
