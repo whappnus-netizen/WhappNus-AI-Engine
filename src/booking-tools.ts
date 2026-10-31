@@ -145,7 +145,7 @@ export async function executeBookingAction(raw:unknown,ctx:ToolContext) {
   const slot=slots.find(x=>x.starts_at===start.toISOString()&&(!action.arguments.staff_id||x.staff_id===action.arguments.staff_id)&&(!action.arguments.resource_id||x.resource_id===action.arguments.resource_id));
   if(!slot)throw new Error("BOOKING_SLOT_NO_LONGER_AVAILABLE");
   const key=createHash("sha256").update([ctx.organizationId,ctx.conversationId??"",ctx.messageId??"",action.arguments.service_id,start.toISOString()].join(":")).digest("hex");
-  const {data,error}=await supabase.rpc("create_booking_v1",{
+  const {data,error}=await supabase.rpc("create_booking_v2",{
    p_organization_id:ctx.organizationId,p_contact_id:ctx.contactId,p_conversation_id:ctx.conversationId,
    p_service_id:action.arguments.service_id,p_staff_id:action.arguments.staff_id??slot.staff_id,
    p_resource_id:action.arguments.resource_id??slot.resource_id,p_starts_at:start.toISOString(),p_source:"ai",
