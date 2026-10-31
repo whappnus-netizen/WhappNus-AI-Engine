@@ -81,6 +81,22 @@ async function getAvailability(ctx:ToolContext,serviceId:string,date:string,requ
  const activeResources=(resourceRows.data??[]).filter(x=>x.is_active);
  const slots:Array<Record<string,unknown>>=[];
  const activeBookings=existing??[];
+ const existingServiceIds=[...new Set(activeBookings.map(b=>b.service_id))];
+ const existingServices=existingServiceIds.length
+  ? await supabase.from("booking_services").select("id,buffer_before_minutes,buffer_after_minutes").eq("organization_id",ctx.organizationId).in("id",existingServiceIds)
+  : {data:[],error:null};
+ if(existingServices.error)throw new Error(existingServices.error.message);
+ const serviceBuffers=new Map((existingServices.data??[]).map(x=>[x.id,x]));
+ const staffBookingOverlaps=(candidateStart:Date,candidateEnd:Date,staffId:string|null)=>{
+  if(!staffId)return false;
+  return activeBookings.some(b=>{
+   if(b.staff_id!==staffId)return false;
+   const prior=serviceBuffers.get(b.service_id);
+   const priorStart=new Date(new Date(b.starts_at).getTime()-(prior?.buffer_before_minutes??0)*60000);
+   const priorEnd=new Date(new Date(b.ends_at).getTime()+(prior?.buffer_after_minutes??0)*60000);
+   return overlaps(candidateStart,candidateEnd,priorStart.toISOString(),priorEnd.toISOString());
+  });
+ };
  for(const orgRule of orgRules??[]){
   const [startHour,startMinute]=String(orgRule.starts_at).slice(0,5).split(":").map(Number);
   const [endHour,endMinute]=String(orgRule.ends_at).slice(0,5).split(":").map(Number);
@@ -92,21 +108,21 @@ async function getAvailability(ctx:ToolContext,serviceId:string,date:string,requ
    const end=new Date(start.getTime()+service.duration_minutes*60000);
    const paddedStart=new Date(start.getTime()-service.buffer_before_minutes*60000);
    const paddedEnd=new Date(end.getTime()+service.buffer_after_minutes*60000);
-   if((exceptions??[]).some(x=>x.exception_type==="unavailable"&&overlaps(start,end,x.starts_at,x.ends_at)))continue;
+   if((exceptions??[]).some(x=>x.scope_type==="organization"&&x.exception_type==="unavailable"&&overlaps(start,end,x.starts_at,x.ends_at)))continue;
    if(activeBookings.filter(b=>b.service_id===serviceId&&overlaps(start,end,b.starts_at,b.ends_at)).length>=service.capacity)continue;
    const staffCandidates=allowedStaffIds.length?activeStaff:[{id:null,display_name:"Qualquer profissional",is_active:true}];
    const eligibleStaff=staffCandidates.filter(s=>{
     const own=(staffRules.data??[]).filter(r=>r.scope_id===s.id);
     const rules=own.length?own: [orgRule];
     const fits=rules.some(r=>r.is_available&&String(r.starts_at).slice(0,5)<=hh+":"+mm&&String(r.ends_at).slice(0,5)>=localParts(end,timezone).time);
-    return fits&&!activeBookings.some(b=>b.staff_id===s.id&&b.status!=="cancelled"&&overlaps(paddedStart,paddedEnd,b.starts_at,b.ends_at));
+    return fits&&!staffBookingOverlaps(paddedStart,paddedEnd,s.id)&&!(exceptions??[]).some(x=>x.scope_type==="staff"&&x.scope_id===s.id&&x.exception_type==="unavailable"&&overlaps(start,end,x.starts_at,x.ends_at));
    });
    const resourceCandidates=resourceIds.length?activeResources:[{id:null,name:"Sem recurso",is_active:true}];
    const eligibleResources=resourceCandidates.filter(r=>{
     const own=(resourceRules.data??[]).filter(rule=>rule.scope_id===r.id);
     const rules=own.length?own:[orgRule];
     const fits=rules.some(rule=>rule.is_available&&String(rule.starts_at).slice(0,5)<=hh+":"+mm&&String(rule.ends_at).slice(0,5)>=localParts(end,timezone).time);
-    return fits&&!activeBookings.some(b=>b.resource_id===r.id&&overlaps(start,end,b.starts_at,b.ends_at));
+    return fits&&!activeBookings.some(b=>b.resource_id===r.id&&overlaps(start,end,b.starts_at,b.ends_at))&&!(exceptions??[]).some(x=>x.scope_type==="resource"&&x.scope_id===r.id&&x.exception_type==="unavailable"&&overlaps(start,end,x.starts_at,x.ends_at));
    });
    if(eligibleStaff.length&&eligibleResources.length){
     for(const s of eligibleStaff)for(const resource of eligibleResources){
