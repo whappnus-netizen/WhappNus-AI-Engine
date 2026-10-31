@@ -69,8 +69,8 @@ async function getAvailability(ctx:ToolContext,serviceId:string,date:string,requ
  const [staffRows,resourceRows,staffRules,resourceRules]=await Promise.all([
   staffIds.length?supabase.from("booking_staff").select("id,display_name,is_active").eq("organization_id",ctx.organizationId).in("id",staffIds):Promise.resolve({data:[],error:null}),
   resourceIds.length?supabase.from("booking_resources").select("id,name,is_active").eq("organization_id",ctx.organizationId).in("id",resourceIds):Promise.resolve({data:[],error:null}),
-  staffIds.length?supabase.from("booking_availability_rules").select("*").eq("organization_id",ctx.organizationId).eq("scope_type","staff").in("scope_id",staffIds).eq("is_available",true):Promise.resolve({data:[],error:null}),
-  resourceIds.length?supabase.from("booking_availability_rules").select("*").eq("organization_id",ctx.organizationId).eq("scope_type","resource").in("scope_id",resourceIds).eq("is_available",true):Promise.resolve({data:[],error:null})
+  staffIds.length?supabase.from("booking_availability_rules").select("*").eq("organization_id",ctx.organizationId).eq("scope_type","staff").in("scope_id",staffIds):Promise.resolve({data:[],error:null}),
+  resourceIds.length?supabase.from("booking_availability_rules").select("*").eq("organization_id",ctx.organizationId).eq("scope_type","resource").in("scope_id",resourceIds):Promise.resolve({data:[],error:null})
  ]);
  if(staffRows.error||resourceRows.error||staffRules.error||resourceRules.error)throw new Error("BOOKING_AVAILABILITY_LOOKUP_FAILED");
  const activeStaff=(staffRows.data??[]).filter(x=>x.is_active);
@@ -93,13 +93,13 @@ async function getAvailability(ctx:ToolContext,serviceId:string,date:string,requ
    const eligibleStaff=(activeStaff.length?activeStaff:[{id:null,display_name:"Qualquer profissional",is_active:true}]).filter(s=>{
     const own=(staffRules.data??[]).filter(r=>r.scope_id===s.id);
     const rules=own.length?own: [orgRule];
-    const fits=rules.some(r=>String(r.starts_at).slice(0,5)<=hh+":"+mm&&String(r.ends_at).slice(0,5)>=localParts(end,timezone).time);
+    const fits=rules.some(r=>r.is_available&&String(r.starts_at).slice(0,5)<=hh+":"+mm&&String(r.ends_at).slice(0,5)>=localParts(end,timezone).time);
     return fits&&!activeBookings.some(b=>b.staff_id===s.id&&b.status!=="cancelled"&&overlaps(paddedStart,paddedEnd,b.starts_at,b.ends_at));
    });
    const eligibleResources=(activeResources.length?activeResources:[{id:null,name:"Sem recurso",is_active:true}]).filter(r=>{
     const own=(resourceRules.data??[]).filter(rule=>rule.scope_id===r.id);
     const rules=own.length?own:[orgRule];
-    const fits=rules.some(rule=>String(rule.starts_at).slice(0,5)<=hh+":"+mm&&String(rule.ends_at).slice(0,5)>=localParts(end,timezone).time);
+    const fits=rules.some(rule=>rule.is_available&&String(rule.starts_at).slice(0,5)<=hh+":"+mm&&String(rule.ends_at).slice(0,5)>=localParts(end,timezone).time);
     return fits&&!activeBookings.some(b=>b.resource_id===r.id&&overlaps(start,end,b.starts_at,b.ends_at));
    });
    if(eligibleStaff.length&&eligibleResources.length){
