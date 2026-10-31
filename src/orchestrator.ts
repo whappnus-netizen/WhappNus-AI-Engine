@@ -8,7 +8,13 @@ import {buildMessages} from "./prompt.js";
 import {createProvider} from "./providers.js";\nimport {executeBookingAction} from "./booking-tools.js";
 import type {AgentConfig,GenerateRequest,GeneratedResponse,MediaAttachment} from "./types.js";
 
-function parseBookingAction(text:string):unknown|null {\n const match=text.match(/<WHAPPNUS_BOOKING_ACTION>\\s*([\\s\\S]*?)\\s*<\\/WHAPPNUS_BOOKING_ACTION>/i);\n if(!match?.[1])return null;\n try{return JSON.parse(match[1]) as unknown;}catch{return null;}\n}\n\nasync function loadInboundAttachment(input: GenerateRequest): Promise<MediaAttachment | null> {
+function parseBookingAction(text:string):unknown|null {
+ const match=text.match(/<WHAPPNUS_BOOKING_ACTION>\s*([\s\S]*?)\s*<\/WHAPPNUS_BOOKING_ACTION>/i);
+ if(!match?.[1])return null;
+ try{return JSON.parse(match[1]) as unknown;}catch{return null;}
+}
+
+async function loadInboundAttachment(input: GenerateRequest): Promise<MediaAttachment | null> {
  if (!input.mediaPath || !input.messageType || input.messageType === "text" || input.messageType === "system") return null;
  // Only fetch paths inside this tenant's own WhatsApp media folder.
  const expectedPrefix = input.organizationId + "/" + input.whatsappNumberId + "/";
