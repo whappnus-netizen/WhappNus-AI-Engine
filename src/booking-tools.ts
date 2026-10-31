@@ -117,7 +117,8 @@ async function getAvailability(ctx:ToolContext,serviceId:string,date:string,requ
 export async function executeBookingAction(raw:unknown,ctx:ToolContext) {
  const parsed=actionSchema.safeParse(raw);
  if(!parsed.success)throw new Error("INVALID_BOOKING_ACTION");
- if(!ctx.bookingPermissions.enabled)throw new Error("BOOKING_TOOLS_NOT_AUTHORIZED");\n const {error:expiryError}=await supabase.rpc("expire_pending_bookings_v1",{p_organization_id:ctx.organizationId}); if(expiryError)throw new Error(expiryError.message);
+ if(!ctx.bookingPermissions.enabled)throw new Error("BOOKING_TOOLS_NOT_AUTHORIZED");
+ const {error:expiryError}=await supabase.rpc("expire_pending_bookings_v1",{p_organization_id:ctx.organizationId}); if(expiryError)throw new Error(expiryError.message);
  const action=parsed.data;
  if(action.action==="list_services"){
   const {data,error}=await supabase.from("booking_services").select("id,name,description,duration_minutes,price_amount,category").eq("organization_id",ctx.organizationId).eq("is_active",true).order("name");
