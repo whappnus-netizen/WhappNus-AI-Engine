@@ -1,3 +1,4 @@
+// booking tool module
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { supabase } from "./db.js";
