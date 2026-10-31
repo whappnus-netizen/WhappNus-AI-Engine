@@ -9,7 +9,7 @@ const actionSchema = z.discriminatedUnion("action", [
  z.object({action:z.literal("create_booking"),arguments:z.object({service_id:z.string().uuid(),starts_at:z.string().datetime(),staff_id:z.string().uuid().nullable().optional(),resource_id:z.string().uuid().nullable().optional(),customer_notes:z.string().max(1000).optional()})}),
  z.object({action:z.literal("list_customer_bookings"),arguments:z.object({})}),
  z.object({action:z.literal("cancel_booking"),arguments:z.object({booking_id:z.string().uuid(),reason:z.string().max(500).optional()})}),
- z.object({action:z.literal("reschedule_booking"),arguments:z.object({booking_id:z.string().uuid(),date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),time:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)})}),
+ z.object({action:z.literal("reschedule_booking"),arguments:z.object({booking_id:z.string().uuid(),date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),time:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),staff_id:z.string().uuid().nullable().optional(),resource_id:z.string().uuid().nullable().optional()})}),
 ]);
 export type BookingAction = z.infer<typeof actionSchema>;
 
@@ -175,8 +175,11 @@ export async function executeBookingAction(raw:unknown,ctx:ToolContext) {
   if(!ctx.contactId)throw new Error("CUSTOMER_CONTACT_REQUIRED");
   const {data:booking,error}=await supabase.from("bookings").select("id,contact_id,service_id,staff_id,resource_id,status").eq("organization_id",ctx.organizationId).eq("id",action.arguments.booking_id).maybeSingle();
   if(error||!booking||booking.contact_id!==ctx.contactId)throw new Error("BOOKING_NOT_FOUND_FOR_CUSTOMER");
-  const slots=await getAvailability(ctx,booking.service_id,action.arguments.date,booking.staff_id??undefined);
-  const slot=slots.find(x=>x.local_time===action.arguments.time && (!booking.staff_id || x.staff_id===booking.staff_id));
+  const preferredStaff=action.arguments.staff_id??booking.staff_id??undefined;
+  const preferredResource=action.arguments.resource_id??booking.resource_id??undefined;
+  const slots=await getAvailability(ctx,booking.service_id,action.arguments.date,preferredStaff);
+  const slot=slots.find(x=>x.local_time===action.arguments.time &&
+   (!preferredStaff || x.staff_id===preferredStaff) && (!preferredResource || x.resource_id===preferredResource));
   if(!slot)throw new Error("BOOKING_SLOT_NO_LONGER_AVAILABLE");
   const {data,error:updateError}=await supabase.rpc("reschedule_booking_v1",{
    p_organization_id:ctx.organizationId,p_booking_id:booking.id,p_starts_at:slot.starts_at,
