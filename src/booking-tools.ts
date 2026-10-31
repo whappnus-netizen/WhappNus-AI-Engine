@@ -59,7 +59,7 @@ async function getAvailability(ctx:ToolContext,serviceId:string,date:string,requ
   supabase.from("booking_service_staff").select("staff_id").eq("organization_id",ctx.organizationId).eq("service_id",serviceId),
   supabase.from("booking_service_resources").select("resource_id").eq("organization_id",ctx.organizationId).eq("service_id",serviceId),
   supabase.from("booking_availability_exceptions").select("*").eq("organization_id",ctx.organizationId).lt("starts_at",localEnd.toISOString()).gt("ends_at",localStart.toISOString()),
-  supabase.from("bookings").select("starts_at,ends_at,staff_id,resource_id,service_id,status").eq("organization_id",ctx.organizationId).gte("starts_at",localStart.toISOString()).lt("starts_at",new Date(localEnd.getTime()+60000).toISOString()).in("status",["pending_confirmation","confirmed","in_progress"])
+  supabase.from("bookings").select("starts_at,ends_at,staff_id,resource_id,service_id,status").eq("organization_id",ctx.organizationId).lt("starts_at",new Date(localEnd.getTime()+60000).toISOString()).gt("ends_at",localStart.toISOString()).in("status",["pending_confirmation","confirmed","in_progress"])
  ]);
  for(const error of [orgRulesError,staffLinksError,resourceLinksError,exceptionsError,existingError])if(error)throw new Error(error.message);
  const allowedStaffIds=(staffLinks??[]).map(x=>x.staff_id);
@@ -90,20 +90,22 @@ async function getAvailability(ctx:ToolContext,serviceId:string,date:string,requ
    const paddedEnd=new Date(end.getTime()+service.buffer_after_minutes*60000);
    if((exceptions??[]).some(x=>x.exception_type==="unavailable"&&overlaps(start,end,x.starts_at,x.ends_at)))continue;
    if(activeBookings.filter(b=>b.service_id===serviceId&&overlaps(start,end,b.starts_at,b.ends_at)).length>=service.capacity)continue;
-   const eligibleStaff=(activeStaff.length?activeStaff:[{id:null,display_name:"Qualquer profissional",is_active:true}]).filter(s=>{
+   const staffCandidates=allowedStaffIds.length?activeStaff:[{id:null,display_name:"Qualquer profissional",is_active:true}];
+   const eligibleStaff=staffCandidates.filter(s=>{
     const own=(staffRules.data??[]).filter(r=>r.scope_id===s.id);
     const rules=own.length?own: [orgRule];
     const fits=rules.some(r=>r.is_available&&String(r.starts_at).slice(0,5)<=hh+":"+mm&&String(r.ends_at).slice(0,5)>=localParts(end,timezone).time);
     return fits&&!activeBookings.some(b=>b.staff_id===s.id&&b.status!=="cancelled"&&overlaps(paddedStart,paddedEnd,b.starts_at,b.ends_at));
    });
-   const eligibleResources=(activeResources.length?activeResources:[{id:null,name:"Sem recurso",is_active:true}]).filter(r=>{
+   const resourceCandidates=resourceIds.length?activeResources:[{id:null,name:"Sem recurso",is_active:true}];
+   const eligibleResources=resourceCandidates.filter(r=>{
     const own=(resourceRules.data??[]).filter(rule=>rule.scope_id===r.id);
     const rules=own.length?own:[orgRule];
     const fits=rules.some(rule=>rule.is_available&&String(rule.starts_at).slice(0,5)<=hh+":"+mm&&String(rule.ends_at).slice(0,5)>=localParts(end,timezone).time);
     return fits&&!activeBookings.some(b=>b.resource_id===r.id&&overlaps(start,end,b.starts_at,b.ends_at));
    });
    if(eligibleStaff.length&&eligibleResources.length){
-    for(const s of eligibleStaff.slice(0,1))for(const resource of eligibleResources.slice(0,1)){
+    for(const s of eligibleStaff)for(const resource of eligibleResources){
      slots.push({starts_at:start.toISOString(),ends_at:end.toISOString(),local_time:hh+":"+mm,staff_id:s.id,staff_name:s.display_name,resource_id:resource.id,resource_name:resource.name});
     }
    }
@@ -142,8 +144,11 @@ export async function executeBookingAction(raw:unknown,ctx:ToolContext) {
   if(!ctx.bookingPermissions.canCreate)throw new Error("BOOKING_CREATE_NOT_AUTHORIZED");
   if(!ctx.contactId)throw new Error("CUSTOMER_CONTACT_REQUIRED");
   const start=new Date(action.arguments.starts_at);
-  const local=localParts(start,"Africa/Luanda");
-  const {data:org}=await supabase.from("organizations").select("timezone").eq("id",ctx.organizationId).single();
+  if(!Number.isFinite(start.getTime()))throw new Error("BOOKING_INVALID_START_TIME");
+  const {data:org,error:orgError}=await supabase.from("organizations").select("timezone").eq("id",ctx.organizationId).single();
+  if(orgError||!org)throw new Error("ORGANIZATION_NOT_FOUND");
+  const timezone=org.timezone||"Africa/Luanda";
+  const local=localParts(start,timezone);
   const slots=await getAvailability(ctx,action.arguments.service_id,local.date,action.arguments.staff_id??undefined);
   const slot=slots.find(x=>x.starts_at===start.toISOString()&&(!action.arguments.staff_id||x.staff_id===action.arguments.staff_id)&&(!action.arguments.resource_id||x.resource_id===action.arguments.resource_id));
   if(!slot)throw new Error("BOOKING_SLOT_NO_LONGER_AVAILABLE");
@@ -170,8 +175,8 @@ export async function executeBookingAction(raw:unknown,ctx:ToolContext) {
   if(!ctx.contactId)throw new Error("CUSTOMER_CONTACT_REQUIRED");
   const {data:booking,error}=await supabase.from("bookings").select("id,contact_id,service_id,staff_id,resource_id,status").eq("organization_id",ctx.organizationId).eq("id",action.arguments.booking_id).maybeSingle();
   if(error||!booking||booking.contact_id!==ctx.contactId)throw new Error("BOOKING_NOT_FOUND_FOR_CUSTOMER");
-  const slots=await getAvailability(ctx,booking.service_id,action.arguments.date,action.arguments.staff_id);
-  const slot=slots.find(x=>x.local_time===action.arguments.time);
+  const slots=await getAvailability(ctx,booking.service_id,action.arguments.date,booking.staff_id??undefined);
+  const slot=slots.find(x=>x.local_time===action.arguments.time && (!booking.staff_id || x.staff_id===booking.staff_id));
   if(!slot)throw new Error("BOOKING_SLOT_NO_LONGER_AVAILABLE");
   const {data,error:updateError}=await supabase.rpc("reschedule_booking_v1",{
    p_organization_id:ctx.organizationId,p_booking_id:booking.id,p_starts_at:slot.starts_at,
