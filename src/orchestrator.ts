@@ -156,7 +156,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
   try{
    toolResult={ok:true,result:await executeBookingAction(action,{
     organizationId:input.organizationId,contactId:input.contactId??null,conversationId:input.conversationId??null,
-    messageId:safeMessageId,bookingPermissions
+    messageId:typeof input.messageId==="string"?input.messageId:safeMessageId,bookingPermissions
    })};
   }catch(error){
    toolResult={ok:false,error:error instanceof Error?error.message:"BOOKING_TOOL_FAILED"};
