@@ -6,7 +6,7 @@ import { supabase } from "./db.js";
 const actionSchema = z.discriminatedUnion("action", [
  z.object({action:z.literal("list_services"),arguments:z.object({}).default({})}),
  z.object({action:z.literal("check_availability"),arguments:z.object({service_id:z.string().uuid(),date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),staff_id:z.string().uuid().optional()})}),
- z.object({action:z.literal("create_booking"),arguments:z.object({service_id:z.string().uuid(),starts_at:z.string().datetime(),staff_id:z.string().uuid().nullable().optional(),resource_id:z.string().uuid().nullable().optional(),customer_notes:z.string().max(1000).optional()})}),
+ z.object({action:z.literal("create_booking"),arguments:z.object({service_id:z.string().uuid(),date:z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),time:z.string().regex(/^([01]\\d|2[0-3]):[0-5]\\d$/).optional(),starts_at:z.string().datetime().optional(),staff_id:z.string().uuid().nullable().optional(),resource_id:z.string().uuid().nullable().optional(),customer_notes:z.string().max(1000).optional()}).refine(a=>Boolean(a.starts_at)||(Boolean(a.date)&&Boolean(a.time)))}),
  z.object({action:z.literal("list_customer_bookings"),arguments:z.object({})}),
  z.object({action:z.literal("cancel_booking"),arguments:z.object({booking_id:z.string().uuid(),reason:z.string().max(500).optional()})}),
  z.object({action:z.literal("reschedule_booking"),arguments:z.object({booking_id:z.string().uuid(),date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),time:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),staff_id:z.string().uuid().nullable().optional(),resource_id:z.string().uuid().nullable().optional()})}),
@@ -165,20 +165,32 @@ export async function executeBookingAction(raw:unknown,ctx:ToolContext) {
  if(action.action==="create_booking"){
   if(!ctx.bookingPermissions.canCreate)throw new Error("BOOKING_CREATE_NOT_AUTHORIZED");
   if(!ctx.contactId)throw new Error("CUSTOMER_CONTACT_REQUIRED");
-  const start=new Date(action.arguments.starts_at);
-  if(!Number.isFinite(start.getTime()))throw new Error("BOOKING_INVALID_START_TIME");
   const {data:org,error:orgError}=await supabase.from("organizations").select("timezone").eq("id",ctx.organizationId).single();
   if(orgError||!org)throw new Error("ORGANIZATION_NOT_FOUND");
   const timezone=org.timezone||"Africa/Luanda";
-  const local=localParts(start,timezone);
-  const slots=await getAvailability(ctx,action.arguments.service_id,local.date,action.arguments.staff_id??undefined);
-  const slot=slots.find(x=>x.starts_at===start.toISOString()&&(!action.arguments.staff_id||x.staff_id===action.arguments.staff_id)&&(!action.arguments.resource_id||x.resource_id===action.arguments.resource_id));
-  if(!slot)throw new Error("BOOKING_SLOT_NO_LONGER_AVAILABLE");
-  const key=createHash("sha256").update([ctx.organizationId,ctx.conversationId??"",ctx.messageId??"",action.arguments.service_id,start.toISOString()].join(":")).digest("hex");
+  let start:Date;
+  let slot:Record<string,unknown>|undefined;
+  if(action.arguments.date&&action.arguments.time){
+   // Customer-facing booking times are local wall-clock times. Resolve the exact
+   // requested slot on the server; never ask the model to calculate a UTC offset.
+   const slots=await getAvailability(ctx,action.arguments.service_id,action.arguments.date,action.arguments.staff_id??undefined);
+   slot=slots.find(x=>x.local_time===action.arguments.time&&(!action.arguments.staff_id||x.staff_id===action.arguments.staff_id)&&(!action.arguments.resource_id||x.resource_id===action.arguments.resource_id));
+   if(!slot)throw new Error("BOOKING_SLOT_NO_LONGER_AVAILABLE");
+   start=new Date(String(slot.starts_at));
+  }else{
+   start=new Date(action.arguments.starts_at??"");
+   if(!Number.isFinite(start.getTime()))throw new Error("BOOKING_INVALID_START_TIME");
+   const local=localParts(start,timezone);
+   const slots=await getAvailability(ctx,action.arguments.service_id,local.date,action.arguments.staff_id??undefined);
+   slot=slots.find(x=>x.starts_at===start.toISOString()&&(!action.arguments.staff_id||x.staff_id===action.arguments.staff_id)&&(!action.arguments.resource_id||x.resource_id===action.arguments.resource_id));
+   if(!slot)throw new Error("BOOKING_SLOT_NO_LONGER_AVAILABLE");
+  }
+  const startsAt=start.toISOString();
+  const key=createHash("sha256").update([ctx.organizationId,ctx.conversationId??"",ctx.messageId??"",action.arguments.service_id,startsAt].join(":")).digest("hex");
   const {data,error}=await supabase.rpc("create_booking_v2",{
    p_organization_id:ctx.organizationId,p_contact_id:ctx.contactId,p_conversation_id:ctx.conversationId,
    p_service_id:action.arguments.service_id,p_staff_id:action.arguments.staff_id??slot.staff_id,
-   p_resource_id:action.arguments.resource_id??slot.resource_id,p_starts_at:start.toISOString(),p_source:"ai",
+   p_resource_id:action.arguments.resource_id??slot.resource_id,p_starts_at:startsAt,p_source:"ai",
    p_customer_notes:action.arguments.customer_notes??null,p_idempotency_key:key,p_actor_user_id:null
   });
   if(error)throw new Error(error.message);
