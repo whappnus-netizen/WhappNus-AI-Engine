@@ -129,11 +129,13 @@ async function getAvailability(ctx:ToolContext,serviceId:string,date:string,requ
      slots.push({starts_at:start.toISOString(),ends_at:end.toISOString(),local_time:hh+":"+mm,staff_id:s.id,staff_name:s.display_name,resource_id:resource.id,resource_name:resource.name});
     }
    }
-   if(slots.length>=12)break;
+   // Return enough of the business day for customers who request a specific
+   // afternoon slot; 12 entries only exposed the first three hours on a 15-min grid.
+   if(slots.length>=48)break;
   }
-  if(slots.length>=12)break;
+  if(slots.length>=48)break;
  }
- return slots.slice(0,12);
+ return slots.slice(0,48);
 }
 
 export async function executeBookingAction(raw:unknown,ctx:ToolContext) {
