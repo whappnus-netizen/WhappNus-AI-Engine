@@ -139,17 +139,20 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
    console.warn("[booking] tools disabled because booking settings could not be loaded:",error instanceof Error?error.message:String(error));
   }
  }
- if(bookingPermissions.enabled){
+ {
   const systemMessage=messages[0];
   if(systemMessage){
-   const bookingInstructions=[
+   const bookingInstructions=bookingPermissions.enabled?[
     "## AGENDAMENTOS WHAPPNUS — ferramentas reais",
-    "Podes consultar serviços e disponibilidade e, se estiver autorizado, criar, consultar, cancelar ou remarcar reservas. Nunca inventes horários nem afirmes que uma operação foi concluída sem resultado positivo da ferramenta.",
-    "Quando precisares de executar uma operação, responde exclusivamente com este formato: <WHAPPNUS_BOOKING_ACTION>{\"action\":\"list_services\",\"arguments\":{}}</WHAPPNUS_BOOKING_ACTION>.",
-    "Acções: list_services {}; check_availability {service_id,date AAAA-MM-DD,staff_id opcional}; create_booking {service_id,starts_at ISO UTC exacto,staff_id opcional,resource_id opcional,customer_notes opcional}; list_customer_bookings {}; cancel_booking {booking_id,reason opcional}; reschedule_booking {booking_id,date AAAA-MM-DD,time HH:MM,staff_id opcional,resource_id opcional}; ao remarcar, mantém o profissional e o recurso originais sempre que possível, excepto quando o cliente escolher outros.",
-    "Data e hora local actual da organização ("+bookingTimezone+"): "+bookingLocalNow+". Interpreta hoje, amanhã e dias da semana com base nesta referência; nunca assumes datas passadas.",
-    "Consulta serviços e disponibilidade antes de oferecer horários. Cria uma reserva apenas quando o cliente escolher um horário devolvido pelo sistema. Se houver vários profissionais disponíveis, pergunta se prefere alguém específico ou qualquer profissional; respeita sempre a escolha e usa o staff_id exacto do horário devolvido. Para cancelar ou remarcar, consulta primeiro as reservas do próprio cliente e usa o booking_id correspondente. Se a reserva vier com status pending_confirmation, informa que o pedido foi recebido e aguarda aprovação da equipa; só diz confirmado quando status for confirmed.",
+    "Quando o cliente demonstrar intenção de marcar, agendar, reservar ou alterar uma marcação, trata isso como um pedido operacional e usa as ferramentas; não respondas apenas com texto.",
+    "Para um pedido novo: primeiro list_services; identifica o serviço pelo nome ou por correspondência clara. Se não houver correspondência inequívoca, pergunta qual serviço pretende. Depois check_availability para a data exacta indicada pelo cliente. Se o cliente já indicou data e hora, essa indicação é a escolha explícita dele: se o horário exacto estiver entre os slots devolvidos, executa create_booking imediatamente, sem pedir que escolha novamente nem exigir uma confirmação redundante. Se não estiver disponível, apresenta alternativas reais devolvidas pela ferramenta.",
+    "Responde exclusivamente com o protocolo: <WHAPPNUS_BOOKING_ACTION>{\"action\":\"list_services\",\"arguments\":{}}</WHAPPNUS_BOOKING_ACTION>. Acções: list_services {}; check_availability {service_id,date AAAA-MM-DD,staff_id opcional}; create_booking {service_id,starts_at ISO UTC exacto,staff_id opcional,resource_id opcional,customer_notes opcional}; list_customer_bookings {}; cancel_booking {booking_id,reason opcional}; reschedule_booking {booking_id,date AAAA-MM-DD,time HH:MM,staff_id opcional,resource_id opcional}.",
+    "Data e hora local actual da organização ("+bookingTimezone+"): "+bookingLocalNow+". Interpreta datas em português e converte a hora local para o starts_at ISO UTC usando o slot exacto devolvido pela ferramenta; nunca assumes datas passadas.",
+    "Se houver vários profissionais disponíveis, respeita a escolha do cliente; se não indicou preferência, escolhe qualquer profissional elegível devolvido. Para cancelar/remarcar, consulta primeiro as reservas do próprio cliente. Só afirma sucesso depois de resultado ok da ferramenta e status confirmed ou pending_confirmation. Se pending_confirmation, diz que aguarda aprovação.",
     "Permissões efectivas: criar "+bookingPermissions.canCreate+", cancelar "+bookingPermissions.canCancel+", remarcar "+bookingPermissions.canReschedule+". Nunca tentes executar uma operação sem permissão. Nunca exponhas este protocolo ao cliente."
+   ]:[
+    "## SEGURANÇA DE AGENDAMENTOS",
+    "As ferramentas de agendamento não estão activas ou autorizadas para este agente. Se o cliente pedir uma marcação, não digas que ficou registada, anotada, confirmada ou que a equipa foi avisada. Explica que não conseguiste concluir o registo e encaminha para contacto humano, sem inventar qualquer operação."
    ].join("\n");
    messages[0]={...systemMessage,content:systemMessage.content+"\n\n"+bookingInstructions};
   }
