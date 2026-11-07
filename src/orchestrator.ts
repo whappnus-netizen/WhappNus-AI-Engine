@@ -30,7 +30,7 @@ function extractPaymentProofMarker(text:string):{
   const currency=typeof raw["currency"]==="string"?raw["currency"].trim().toUpperCase():null;
   const amountValue=typeof raw["amount"]==="number"?raw["amount"]:
    typeof raw["amount"]==="string"?Number(raw["amount"].replace(/[^0-9,.-]/g,"").replace(",", ".")):NaN;
-  const amount=Number.isFinite(amountValue)&&amountValue>0&&(!currency||["AOA","KZ","KZS","AKZ"].includes(currency))
+  const amount=Number.isFinite(amountValue)&&amountValue>0&&(Boolean(currency)&&["AOA","KZ","KZS","AKZ"].includes(currency))
    ?Math.round(amountValue*100)/100:null;
   const methodText=String(raw["paymentMethod"]??"").toLowerCase();
   const paymentMethod:NonNullable<GeneratedResponse["paymentProof"]>["paymentMethod"]=
@@ -145,7 +145,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  const ranked=rankKnowledge(messageText,ctx.knowledge);
  let messages=buildMessages(a,history,formatKnowledge(ranked),formatExamples(ctx.examples),intent.intent,input.profileName??null,messageText);
  if(effectiveAttachment&&(input.messageType==="image"||input.messageType==="document")&&messages[0]){
-  messages[0]={...messages[0],content:messages[0].content+"\\n\\n## DETECÇÃO INTERNA DE COMPROVATIVO (metadados privados)\\nSe o anexo for claramente um comprovativo de pagamento, depois da tua resposta natural ao cliente acrescenta exactamente um bloco <WHAPPNUS_PAYMENT_PROOF>{JSON}</WHAPPNUS_PAYMENT_PROOF>. O JSON deve conter isPaymentProof=true, confidence (0 a 1), amount (número ou null), currency, reference, paymentMethod, payerName, beneficiaryName, transactionDate, itemName e summary. Não inventes dados; itemName só pode vir do histórico ou do catálogo. Se não for comprovativo, não acrescentes bloco. Nunca afirmes que o dinheiro foi recebido ou que o pagamento está confirmado: só a equipa pode validar isso. O bloco é metadado interno e será removido antes de a mensagem chegar ao cliente."};
+  messages[0]={...messages[0],content:messages[0].content+"\n\n## DETECÇÃO INTERNA DE COMPROVATIVO (metadados privados)\\nSe o anexo for claramente um comprovativo de pagamento, depois da tua resposta natural ao cliente acrescenta exactamente um bloco <WHAPPNUS_PAYMENT_PROOF>{JSON}</WHAPPNUS_PAYMENT_PROOF>. O JSON deve conter isPaymentProof=true, confidence (0 a 1), amount (número ou null), currency, reference, paymentMethod, payerName, beneficiaryName, transactionDate, itemName e summary. Não inventes dados; itemName só pode vir do histórico ou do catálogo. Se não for comprovativo, não acrescentes bloco. Nunca afirmes que o dinheiro foi recebido ou que o pagamento está confirmado: só a equipa pode validar isso. O bloco é metadado interno e será removido antes de a mensagem chegar ao cliente."};
  }
  const providerOptions={
   model:a.model??String((settings as Record<string,unknown>|null)?.default_model??config.AI_MODEL),
