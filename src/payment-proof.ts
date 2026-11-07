@@ -80,7 +80,7 @@ export async function analyzePaymentProof(input: PaymentProofInput): Promise<Pay
     data: bytes.toString("base64"),
   };
 
-  const [{ data: history }, { data: agent }, { data: bookings }] = await Promise.all([
+  const [historyResult, agentResult] = await Promise.all([
     supabase.from("messages").select("direction,body,created_at")
       .eq("organization_id", input.organizationId)
       .eq("conversation_id", input.conversationId)
@@ -88,23 +88,28 @@ export async function analyzePaymentProof(input: PaymentProofInput): Promise<Pay
     supabase.from("ai_agents").select("products_services")
       .eq("organization_id", input.organizationId).eq("is_active", true)
       .order("created_at", { ascending: true }).limit(1).maybeSingle(),
-    input.contactId
-      ? supabase.from("bookings").select("service_id,booking_code,status")
-          .eq("organization_id", input.organizationId).eq("contact_id", input.contactId)
-          .order("created_at", { ascending: false }).limit(3)
-      : Promise.resolve({ data: [] as Array<{service_id:string;booking_code:string;status:string}> }),
   ]);
+  const history = historyResult.data ?? [];
+  const agent = agentResult.data;
+  let bookings: Array<{ service_id: string }> = [];
+  if (input.contactId) {
+    const bookingResult = await supabase.from("bookings").select("service_id")
+      .eq("organization_id", input.organizationId).eq("contact_id", input.contactId)
+      .order("created_at", { ascending: false }).limit(3);
+    bookings = (bookingResult.data ?? []) as Array<{ service_id: string }>;
+  }
+  const serviceIds = [...new Set(bookings.map((row) => row.service_id).filter(Boolean))];
+  let services: Array<{ id: string; name: string; price_amount: number | null }> = [];
+  if (serviceIds.length) {
+    const serviceResult = await supabase.from("booking_services").select("id,name,price_amount")
+      .eq("organization_id", input.organizationId).in("id", serviceIds);
+    services = (serviceResult.data ?? []) as Array<{ id: string; name: string; price_amount: number | null }>;
+  }
 
-  const serviceIds = [...new Set((bookings ?? []).map((row) => row.service_id).filter(Boolean))];
-  const { data: services } = serviceIds.length
-    ? await supabase.from("booking_services").select("id,name,price_amount")
-        .eq("organization_id", input.organizationId).in("id", serviceIds)
-    : { data: [] as Array<{id:string;name:string;price_amount:number|null}> };
-
-  const historyText = (history ?? []).slice().reverse().map((row) =>
+  const historyText = history.slice().reverse().map((row) =>
     (row.direction === "inbound" ? "Cliente: " : "Empresa: ") + String(row.body ?? "").slice(0, 700)
   ).join("\n");
-  const serviceText = (services ?? []).map((service) =>
+  const serviceText = services.map((service) =>
     service.name + (service.price_amount != null ? " (" + service.price_amount + " AOA)" : "")
   ).join("; ");
   const productContext = typeof agent?.products_services === "string" ? agent.products_services.slice(0, 3000) : "";
