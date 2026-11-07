@@ -14,6 +14,43 @@ function parseBookingAction(text:string):unknown|null {
  try{return JSON.parse(match[1]) as unknown;}catch{return null;}
 }
 
+function extractPaymentProofMarker(text:string):{
+ text:string;
+ paymentProof:NonNullable<GeneratedResponse["paymentProof"]>|null;
+}{
+ const pattern=/<WHAPPNUS_PAYMENT_PROOF>\s*([\s\S]*?)\s*<\/WHAPPNUS_PAYMENT_PROOF>/i;
+ const match=text.match(pattern);
+ const cleanText=text.replace(pattern,"").trim();
+ if(!match?.[1])return {text:cleanText,paymentProof:null};
+ try{
+  const raw=JSON.parse(match[1]) as Record<string,unknown>;
+  if(raw["isPaymentProof"]!==true)return {text:cleanText,paymentProof:null};
+  const confidence=Math.max(0,Math.min(1,Number(raw["confidence"])||0));
+  if(confidence<0.6)return {text:cleanText,paymentProof:null};
+  const currency=typeof raw["currency"]==="string"?raw["currency"].trim().toUpperCase():null;
+  const amountValue=typeof raw["amount"]==="number"?raw["amount"]:
+   typeof raw["amount"]==="string"?Number(raw["amount"].replace(/[^0-9,.-]/g,"").replace(",", ".")):NaN;
+  const amount=Number.isFinite(amountValue)&&amountValue>0&&(!currency||["AOA","KZ","KZS","AKZ"].includes(currency))
+   ?Math.round(amountValue*100)/100:null;
+  const methodText=String(raw["paymentMethod"]??"").toLowerCase();
+  const paymentMethod:NonNullable<GeneratedResponse["paymentProof"]>["paymentMethod"]=
+   /unitel/.test(methodText)?"unitel_money":/africell/.test(methodText)?"africell_money":
+   /multicaixa|express|mcx/.test(methodText)?"multicaixa_express":
+   /transfer|bank|banco|iban/.test(methodText)?"bank_transfer":
+   /cash|dinheiro|numer[aá]rio/.test(methodText)?"cash":"other";
+  const textValue=(key:string,max=180)=>typeof raw[key]==="string"&&String(raw[key]).trim()
+   ?String(raw[key]).trim().slice(0,max):null;
+  return {text:cleanText,paymentProof:{
+   confidence,amount,originalCurrency:currency,reference:textValue("reference",180),paymentMethod,
+   payerName:textValue("payerName",180),beneficiaryName:textValue("beneficiaryName",180),
+   transactionDate:textValue("transactionDate",60),itemName:textValue("itemName",200),
+   summary:textValue("summary",500)??"Comprovativo identificado; aguarda validação humana."
+  }};
+ }catch{
+  return {text:cleanText,paymentProof:null};
+ }
+}
+
 async function loadInboundAttachment(input: GenerateRequest): Promise<MediaAttachment | null> {
  if (!input.mediaPath || !input.messageType || input.messageType === "text" || input.messageType === "system") return null;
  // Only fetch paths inside this tenant's own WhatsApp media folder.
@@ -107,6 +144,9 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  const intent=classifyIntent(messageText);
  const ranked=rankKnowledge(messageText,ctx.knowledge);
  let messages=buildMessages(a,history,formatKnowledge(ranked),formatExamples(ctx.examples),intent.intent,input.profileName??null,messageText);
+ if(effectiveAttachment&&(input.messageType==="image"||input.messageType==="document")&&messages[0]){
+  messages[0]={...messages[0],content:messages[0].content+"\\n\\n## DETECÇÃO INTERNA DE COMPROVATIVO (metadados privados)\\nSe o anexo for claramente um comprovativo de pagamento, depois da tua resposta natural ao cliente acrescenta exactamente um bloco <WHAPPNUS_PAYMENT_PROOF>{JSON}</WHAPPNUS_PAYMENT_PROOF>. O JSON deve conter isPaymentProof=true, confidence (0 a 1), amount (número ou null), currency, reference, paymentMethod, payerName, beneficiaryName, transactionDate, itemName e summary. Não inventes dados; itemName só pode vir do histórico ou do catálogo. Se não for comprovativo, não acrescentes bloco. Nunca afirmes que o dinheiro foi recebido ou que o pagamento está confirmado: só a equipa pode validar isso. O bloco é metadado interno e será removido antes de a mensagem chegar ao cliente."};
+ }
  const providerOptions={
   model:a.model??String((settings as Record<string,unknown>|null)?.default_model??config.AI_MODEL),
   temperature:a.temperature??config.AI_TEMPERATURE,
@@ -194,6 +234,8 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  if(response.text.includes("<WHAPPNUS_BOOKING_ACTION>")){
   response={...response,text:"Não consegui concluir essa operação de agendamento neste momento. Vou pedir à equipa para confirmar a disponibilidade e dar seguimento."};
  }
+ const extractedPaymentProof=extractPaymentProofMarker(response.text);
+ response={...response,text:extractedPaymentProof.text};
  const reactionText = input.text.toLowerCase();
  const reactionEligible = featureConfig["reactionsEnabled"] !== false &&
   !["image","audio","video","document"].includes(input.messageType ?? "") &&
@@ -201,7 +243,7 @@ export async function generateReply(input:GenerateRequest):Promise<GeneratedResp
  const reactionEmoji = reactionEligible
   ? (/(adorei|amei|❤️|muito bom|muito boa)/i.test(reactionText) ? "❤️" : "👍")
   : null;
- const result={text:response.text,provider:response.provider,model:response.model,latencyMs:Date.now()-started,intent:intent.intent,confidence:intent.confidence,usedKnowledge:ranked.length,agentId:a.id,reactionEmoji};
+ const result={text:response.text,provider:response.provider,model:response.model,latencyMs:Date.now()-started,intent:intent.intent,confidence:intent.confidence,usedKnowledge:ranked.length,agentId:a.id,reactionEmoji,paymentProof:extractedPaymentProof.paymentProof};
  const evaluation=evaluateResponse(input.text,response.text,ranked.length);
 
  await writeAiLog({
