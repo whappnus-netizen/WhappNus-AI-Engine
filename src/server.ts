@@ -1,6 +1,7 @@
 import express from "express";
 import {config} from "./config.js";
 import {generateReply} from "./orchestrator.js";
+import {analyzePaymentProof} from "./payment-proof.js";
 import {createProvider} from "./providers.js";
 import {supabase} from "./db.js";
 import {allow} from "./rate-limit.js";
@@ -31,6 +32,29 @@ app.post("/v1/generate",async(req,res)=>{
  if(!allow(key,config.AI_RATE_LIMIT_PER_MINUTE))return res.status(429).json({ok:false,error:"rate_limited"});
  try{return res.json({ok:true,...await generateReply({...b,text:b.text.trim()} as GenerateRequest)});}
  catch(e){const m=e instanceof Error?e.message:"unknown";if(m==="AUTO_REPLY_DISABLED"||m==="NO_ACTIVE_AGENT")return res.status(409).json({ok:false,error:m});if(["SUBSCRIPTION_REQUIRED","ACCOUNT_SUSPENDED","AI_CONVERSATIONS_EXHAUSTED","PLAN_HAS_NO_AI_CONVERSATIONS"].includes(m))return res.status(402).json({ok:false,error:m});console.error("generation:",m);return res.status(500).json({ok:false,error:"ai_generation_failed"});}
+});
+app.post("/v1/payment-proof/analyze",async(req,res)=>{
+ if(!authorized(req))return res.status(401).json({ok:false,error:"unauthorized"});
+ const b=req.body as {
+  organizationId?:string;whatsappNumberId?:string;conversationId?:string;contactId?:string|null;
+  mediaPath?:string;mediaMimeType?:string;messageType?:string;messageText?:string|null;
+ };
+ if(!b.organizationId||!b.whatsappNumberId||!b.conversationId||!b.mediaPath||!b.mediaMimeType||
+  (b.messageType!=="image"&&b.messageType!=="document")){
+  return res.status(400).json({ok:false,error:"payment_proof_fields_required"});
+ }
+ try{
+  const result=await analyzePaymentProof({
+   organizationId:b.organizationId,whatsappNumberId:b.whatsappNumberId,conversationId:b.conversationId,
+   contactId:b.contactId??null,mediaPath:b.mediaPath,mediaMimeType:b.mediaMimeType,
+   messageType:b.messageType,messageText:b.messageText??null
+  });
+  return res.json({ok:true,...result});
+ }catch(e){
+  const message=e instanceof Error?e.message:"payment_proof_analysis_failed";
+  console.error("payment proof analysis:",message);
+  return res.status(500).json({ok:false,error:"payment_proof_analysis_failed"});
+ }
 });
 app.post("/v1/group-generate",async(req,res)=>{
  const sharedSecret=process.env.GROUP_AI_SHARED_SECRET;

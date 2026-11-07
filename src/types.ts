@@ -27,7 +27,19 @@ export interface AgentConfig {
   id: string; name: string; personality: string; instructions: string; objective: string;
   model?: string; temperature?: number; maxTokens?: number; [key: string]: unknown;
 }
+export interface PaymentProofMetadata {
+  confidence: number;
+  amount: number | null;
+  originalCurrency: string | null;
+  reference: string | null;
+  paymentMethod: "bank_transfer" | "multicaixa_express" | "unitel_money" | "africell_money" | "cash" | "other";
+  payerName: string | null;
+  beneficiaryName: string | null;
+  transactionDate: string | null;
+  itemName: string | null;
+  summary: string;
+}
 export interface GeneratedResponse {
   text: string; provider: string; model: string; latencyMs: number; intent: string;
-  confidence: number; usedKnowledge: number; agentId: string | null; reactionEmoji?: string | null;
+  confidence: number; usedKnowledge: number; agentId: string | null; reactionEmoji?: string | null; paymentProof?: PaymentProofMetadata | null;
 }
