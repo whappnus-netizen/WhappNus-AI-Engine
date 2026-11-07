@@ -137,7 +137,7 @@ export async function analyzePaymentProof(input: PaymentProofInput): Promise<Pay
     confidence: Math.max(0, Math.min(1, Number(raw["confidence"]) || 0)),
     // The payment ledger is AOA-only. Preserve foreign currency/amount in metadata,
     // but do not silently convert it or display it as kwanzas.
-    amount: !currency || ["AOA", "KZ", "KZs", "AKZ"].includes(currency) ? extractedAmount : null,
+    amount: currency && ["AOA", "KZ", "KZS", "AKZ"].includes(currency) ? extractedAmount : null,
     originalCurrency: currency,
     reference: nullableText(raw["reference"], 180),
     paymentMethod: normalizeMethod(raw["paymentMethod"]),
